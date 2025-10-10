@@ -48,10 +48,10 @@
 - `feat`: 새로운 기능 추가 (주요 챕터 완료)
 - `docs`: 학습 노트 문서 변경
 
-/* 
+``
 git commit -m "feat: [Ch02] 스프링 컨테이너 설정 및 의존성 주입 구현"
 git commit -m  "docs: [Ch01] 스프링 부트 Auto-Configuration 원리 정리 완료"
-*/
+``
 ### 로컬 환경에서 실행하는 방법
 1. 프로젝트를 클론합니다: `git clone [당신의 레포지토리 URL]`
 2. `spring-boot-project` 폴더로 이동하여 프로젝트를 IDE (IntelliJ 또는 Eclipse)로 엽니다.
