@@ -3878,6 +3878,641 @@ GET http://localhost:8080/api/articles
 
 ---
 
+## 4.2.12 트랜잭션 처리
+
+### 4.2.12.1 트랜잭션의 필요성
+
+#### 문제 상황: 일괄 회원 등록 시 부분 성공 문제
+
+실제 서비스에서는 여러 데이터를 **한 번의 요청으로 동시에 처리**해야 하는 경우가 많습니다. 예를 들어, 여러 회원을 한 번에 등록하는 기능을 구현한다고 가정해봅시다.
+
+---
+
+#### Member Entity 수정: 이메일 중복 방지
+
+```java
+@Entity
+@Builder
+@AllArgsConstructor
+@NoArgsConstructor
+@Data
+public class Member {
+
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    private String name;
+    
+    // ✅ 이메일 유니크 제약조건 추가
+    @Column(unique = true)
+    private String email;
+    
+    private Integer age;
+
+    private String password;
+    private Boolean enabled;
+
+    @OneToMany(mappedBy = "member", 
+               cascade = CascadeType.ALL, 
+               orphanRemoval = true)
+    private List<Article> articles;
+}
+```
+
+**@Column(unique = true)**:
+- 데이터베이스 레벨에서 이메일 중복을 방지
+- 같은 이메일로 두 번째 회원을 저장하려고 하면 예외 발생
+
+---
+
+#### Controller 수정: Batch 등록 엔드포인트 추가
+
+```java
+@RestController
+@RequestMapping("/api/members")
+@RequiredArgsConstructor
+public class MemberController {
+    private final MemberService memberService;
+    private final ArticleService articleService;
+
+    // ✅ 여러 회원을 한 번에 등록하는 엔드포인트
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public List<MemberResponse> postBatch(@RequestBody List<MemberRequest> memberRequests) {
+        return memberService.createBatch(memberRequests);
+    }
+
+    // ... 나머지 메서드들 ...
+}
+```
+
+**변경 사항**:
+- 단일 회원 등록(`@RequestBody MemberRequest`)에서 **여러 회원 등록**(`@RequestBody List<MemberRequest>`)으로 변경
+- 요청 본문으로 회원 리스트를 받아 처리
+
+---
+
+#### Service 초기 구현 (트랜잭션 미적용)
+
+```java
+@Service
+@RequiredArgsConstructor
+public class MemberService {
+    private final MemberRepository memberRepository;
+
+    public MemberResponse mapToMemberResponse(Member member) {
+        return MemberResponse.builder()
+                .id(member.getId())
+                .name(member.getName())
+                .email(member.getEmail())
+                .age(member.getAge())
+                .build();
+    }
+
+    // ⚠️ 트랜잭션 없이 구현한 Batch 등록
+    public List<MemberResponse> createBatch(List<MemberRequest> memberRequests) {
+        List<MemberResponse> lists = memberRequests.stream()
+                .map(i -> create(i))
+                .collect(Collectors.toList());
+        return lists;
+    }
+
+    public MemberResponse create(MemberRequest memberRequest) {
+        Member member = Member.builder()
+                .name(memberRequest.getName())
+                .email(memberRequest.getEmail())
+                .age(memberRequest.getAge())
+                .build();
+        memberRepository.save(member);
+        return mapToMemberResponse(member);
+    }
+
+    // ... 나머지 메서드들 ...
+}
+```
+
+---
+
+### 4.2.12.2 데이터 무결성 문제 발생
+
+#### 테스트 시나리오 1: 정상적인 요청
+
+**요청**:
+```
+POST http://localhost:8080/api/members
+Content-Type: application/json
+
+[
+    {
+        "name": "홍혜창",
+        "email": "hyechang@spring.ac.kr",
+        "age": 15
+    },
+    {
+        "name": "김우현",
+        "email": "woo@spring.ac.kr",
+        "age": 12
+    },
+    {
+        "name": "홍길동",
+        "email": "hong@spring.ac.kr",
+        "age": 20
+    }
+]
+```
+
+**응답**:
+```json
+[
+    {
+        "id": 1,
+        "name": "홍혜창",
+        "email": "hyechang@spring.ac.kr",
+        "age": 15
+    },
+    {
+        "id": 2,
+        "name": "김우현",
+        "email": "woo@spring.ac.kr",
+        "age": 12
+    },
+    {
+        "id": 3,
+        "name": "홍길동",
+        "email": "hong@spring.ac.kr",
+        "age": 20
+    }
+]
+```
+
+**상태 코드**: `201 Created` ✅
+
+**결과**: 모든 회원이 정상적으로 등록됨
+
+---
+
+#### 테스트 시나리오 2: 중복 이메일 포함 (문제 발생)
+
+**요청**:
+```
+POST http://localhost:8080/api/members
+Content-Type: application/json
+
+[
+    {
+        "name": "홍혜창",
+        "email": "hong@spring.ac.kr",
+        "age": 15
+    },
+    {
+        "name": "김우현",
+        "email": "woo@spring.ac.kr",
+        "age": 12
+    },
+    {
+        "name": "홍길동",
+        "email": "hong@spring.ac.kr",  // ⚠️ 첫 번째와 이메일 중복!
+        "age": 20
+    },
+    {
+        "name": "김구라",
+        "email": "gugugu@spring.ac.kr",
+        "age": 40
+    }
+]
+```
+
+**응답**:
+```json
+{
+    "timestamp": "2025-10-24T04:01:58.229+00:00",
+    "status": 500,
+    "error": "Internal Server Error",
+    "path": "/api/members"
+}
+```
+
+**상태 코드**: `500 Internal Server Error` ❌
+
+---
+
+#### 문제의 핵심: 부분 성공
+
+**DB 상태 확인**:
+```
+GET http://localhost:8080/api/members
+```
+
+**응답**:
+```json
+[
+    {
+        "id": 1,
+        "name": "홍혜창",
+        "email": "hong@spring.ac.kr",
+        "age": 15
+    },
+    {
+        "id": 2,
+        "name": "김우현",
+        "email": "woo@spring.ac.kr",
+        "age": 12
+    }
+]
+```
+
+**문제 상황 분석**:
+
+| 순서 | 회원 이름 | 이메일 | 결과 |
+|-----|---------|--------|------|
+| 1 | 홍혜창 | hong@spring.ac.kr | ✅ 성공 (DB에 저장됨) |
+| 2 | 김우현 | woo@spring.ac.kr | ✅ 성공 (DB에 저장됨) |
+| 3 | 홍길동 | hong@spring.ac.kr | ❌ 실패 (이메일 중복) |
+| 4 | 김구라 | gugugu@spring.ac.kr | ❌ 처리되지 않음 |
+
+**핵심 문제**:
+- 하나의 요청(Batch)이 **부분적으로만 성공**
+- 예외 발생 전까지의 데이터는 DB에 남아있음
+- 예외 발생 후의 데이터는 처리되지 않음
+
+---
+
+### 4.2.12.3 ACID 원칙과 데이터 무결성
+
+#### ACID 원칙이란?
+
+**ACID**는 데이터베이스 트랜잭션이 안전하게 수행되도록 보장하는 4가지 속성입니다.
+
+| 속성 | 영문 | 의미 | 설명 |
+|-----|------|------|------|
+| **원자성** | Atomicity | All or Nothing | 트랜잭션의 모든 작업이 완전히 수행되거나, 전혀 수행되지 않아야 함 |
+| **일관성** | Consistency | 데이터 무결성 유지 | 트랜잭션 전후로 데이터베이스가 항상 일관된 상태를 유지해야 함 |
+| **격리성** | Isolation | 동시 실행 보장 | 동시에 실행되는 트랜잭션들이 서로 영향을 주지 않아야 함 |
+| **지속성** | Durability | 영구 저장 | 성공적으로 완료된 트랜잭션의 결과는 영구적으로 저장되어야 함 |
+
+---
+
+#### 현재 문제: 일관성(Consistency) 위반
+
+**기대하는 동작 (ACID 준수)**:
+
+```
+1. 홍혜창 저장 시도 ✅
+2. 김우현 저장 시도 ✅
+3. 홍길동 저장 시도 ❌ (중복 이메일로 예외 발생)
+4. 예외 감지 → 롤백(Rollback) 수행
+5. 최종 결과: DB에 아무도 저장되지 않음
+```
+
+**실제 동작 (ACID 위반)**:
+
+```
+1. 홍혜창 저장 성공 → DB 커밋 ✅
+2. 김우현 저장 성공 → DB 커밋 ✅
+3. 홍길동 저장 실패 ❌
+4. 예외 발생하여 메서드 종료
+5. 최종 결과: 홍혜창, 김우현만 DB에 남음 (부분 성공)
+```
+
+**핵심**: 
+- **원자성(Atomicity)** 위반: 일부만 성공하고 일부는 실패
+- **일관성(Consistency)** 위반: 데이터베이스가 불완전한 상태
+
+---
+
+### 4.2.12.4 트랜잭션이란?
+
+#### 트랜잭션의 정의
+
+**트랜잭션(Transaction)**: 데이터베이스의 상태를 변경하는 **하나의 논리적인 작업 단위**
+
+**특징**:
+- 여러 개의 작업을 **하나의 묶음**으로 처리
+- 모든 작업이 성공하거나, 모두 실패하여 **롤백(Rollback)** 되어야 함
+- ACID 원칙을 보장
+
+---
+
+#### 트랜잭션 없이 작동하는 방식
+
+```
+createBatch() 메서드 실행
+    ↓
+1. create(홍혜창) 호출
+    → memberRepository.save() 실행
+    → DB 즉시 커밋 ✅
+    
+2. create(김우현) 호출
+    → memberRepository.save() 실행
+    → DB 즉시 커밋 ✅
+    
+3. create(홍길동) 호출
+    → memberRepository.save() 실행
+    → 이메일 중복으로 예외 발생 ❌
+    → 메서드 종료
+    
+4. 최종 결과
+    → 홍혜창, 김우현은 이미 커밋되어 DB에 남음
+    → 홍길동, 김구라는 저장되지 않음
+```
+
+**핵심**: 각 `save()` 호출이 **독립적으로 커밋**되어 부분 성공 발생!
+
+---
+
+#### 트랜잭션을 적용한 방식
+
+```
+@Transactional이 붙은 createBatch() 메서드 실행
+    ↓
+트랜잭션 시작 (Begin Transaction)
+    ↓
+1. create(홍혜창) 호출
+    → memberRepository.save() 실행
+    → 영속성 컨텍스트에만 저장 (DB 커밋 보류)
+    
+2. create(김우현) 호출
+    → memberRepository.save() 실행
+    → 영속성 컨텍스트에만 저장 (DB 커밋 보류)
+    
+3. create(홍길동) 호출
+    → memberRepository.save() 실행
+    → 이메일 중복으로 예외 발생 ❌
+    
+4. 예외 감지 → 롤백(Rollback) 수행
+    → 영속성 컨텍스트의 모든 변경사항 취소
+    → DB에는 아무것도 반영되지 않음
+    
+5. 최종 결과
+    → DB에 아무도 저장되지 않음 ✅
+```
+
+**핵심**: 메서드가 끝날 때까지 **커밋을 보류**하고, 예외 발생 시 **모든 작업을 롤백**!
+
+---
+
+### 4.2.12.5 @Transactional 어노테이션
+
+#### Service에 트랜잭션 적용
+
+```java
+@Service
+@RequiredArgsConstructor
+public class MemberService {
+    private final MemberRepository memberRepository;
+
+    public MemberResponse mapToMemberResponse(Member member) {
+        return MemberResponse.builder()
+                .id(member.getId())
+                .name(member.getName())
+                .email(member.getEmail())
+                .age(member.getAge())
+                .build();
+    }
+
+    // ✅ 트랜잭션 적용
+    @Transactional
+    public List<MemberResponse> createBatch(List<MemberRequest> memberRequests) {
+        List<MemberResponse> lists = memberRequests.stream()
+                .map(i -> create(i))
+                .collect(Collectors.toList());
+        return lists;
+    }
+
+    public MemberResponse create(MemberRequest memberRequest) {
+        Member member = Member.builder()
+                .name(memberRequest.getName())
+                .email(memberRequest.getEmail())
+                .age(memberRequest.getAge())
+                .build();
+        memberRepository.save(member);
+        return mapToMemberResponse(member);
+    }
+
+    // ... 나머지 메서드들 ...
+}
+```
+
+---
+
+#### @Transactional의 동작 원리
+
+**1. 메서드 실행 전**:
+
+| 단계 | 내용 |
+|-----|------|
+| **트랜잭션 시작** | Spring이 자동으로 트랜잭션을 시작 (Begin Transaction) |
+| **영속성 컨텍스트 생성** | JPA EntityManager가 생성되어 엔티티 관리 시작 |
+
+---
+
+**2. 메서드 실행 중**:
+
+| 단계 | 내용 |
+|-----|------|
+| **변경사항 추적** | `save()` 호출 시 영속성 컨텍스트에 변경사항이 쌓임 |
+| **DB 커밋 보류** | 실제 DB에는 아직 반영되지 않음 (Flush 대기) |
+
+---
+
+**3. 메서드 종료 시**:
+
+**정상 종료 (예외 없음)**:
+
+```
+메서드 정상 종료
+    ↓
+영속성 컨텍스트의 변경사항을 DB에 플러시(Flush)
+    ↓
+트랜잭션 커밋(Commit)
+    ↓
+최종적으로 DB에 반영
+```
+
+**예외 발생 (RuntimeException, Error)**:
+
+```
+메서드 실행 중 예외 발생
+    ↓
+Spring이 예외를 감지
+    ↓
+트랜잭션 롤백(Rollback) 수행
+    ↓
+영속성 컨텍스트의 모든 변경사항 취소
+    ↓
+DB에는 아무것도 반영되지 않음
+```
+
+---
+
+### 4.2.12.6 예외 종류와 롤백 규칙
+
+#### Java 예외의 계층 구조
+
+```
+Throwable
+    ├── Error (시스템 레벨 오류)
+    │   └── OutOfMemoryError, StackOverflowError 등
+    │
+    └── Exception
+        ├── RuntimeException (Unchecked Exception)
+        │   ├── NullPointerException
+        │   ├── IllegalArgumentException
+        │   └── DataIntegrityViolationException (이메일 중복 등)
+        │
+        └── Checked Exception
+            ├── IOException
+            ├── SQLException
+            └── 기타 명시적 예외 처리가 필요한 예외
+```
+
+---
+
+#### @Transactional의 기본 롤백 규칙
+
+| 예외 종류 | 컴파일 시점 처리 | 자동 롤백 여부 | 이유 |
+|---------|---------------|-------------|------|
+| **RuntimeException** | 명시적 처리 불필요 | ✅ 자동 롤백 | 예상하지 못한 오류이므로 데이터 무결성을 위해 롤백 |
+| **Error** | 명시적 처리 불필요 | ✅ 자동 롤백 | 시스템 레벨 오류이므로 롤백 필요 |
+| **Checked Exception** | try-catch 또는 throws 필수 | ❌ 롤백 안 함 | 개발자가 명시적으로 처리했으므로 의도가 있다고 판단 |
+
+---
+
+#### Checked Exception에서도 롤백하는 방법
+
+**방법 1: try-catch에서 RuntimeException 던지기**
+
+```java
+@Transactional
+public void someMethod() {
+    try {
+        // Checked Exception이 발생할 수 있는 코드
+        riskyOperation();
+    } catch (IOException e) {
+        // Checked Exception을 RuntimeException으로 변환
+        throw new RuntimeException("파일 처리 실패", e);
+    }
+}
+```
+
+---
+
+**방법 2: rollbackFor 속성 사용**
+
+```java
+@Transactional(rollbackFor = Exception.class)
+public void someMethod() throws IOException {
+    // 모든 Exception (Checked 포함)에서 롤백
+    riskyOperation();
+}
+```
+
+| 속성 | 설명 | 예시 |
+|-----|------|------|
+| **rollbackFor** | 지정한 예외 발생 시 롤백 | `@Transactional(rollbackFor = {IOException.class, SQLException.class})` |
+| **noRollbackFor** | 지정한 예외 발생 시 롤백하지 않음 | `@Transactional(noRollbackFor = IllegalArgumentException.class)` |
+
+---
+
+#### 이메일 중복 예외의 처리
+
+**발생하는 예외**:
+- `DataIntegrityViolationException` (Spring이 제공하는 예외)
+- 이 예외는 `RuntimeException`을 상속받음
+
+**결과**:
+- `@Transactional`이 자동으로 감지하여 롤백 수행 ✅
+
+```
+1. 홍길동 저장 시도
+    ↓
+2. 이메일 중복으로 DataIntegrityViolationException 발생
+    ↓
+3. Spring이 예외를 감지 (RuntimeException 계열)
+    ↓
+4. 자동으로 트랜잭션 롤백
+    ↓
+5. 영속성 컨텍스트의 모든 변경사항 취소
+    ↓
+6. DB에 아무것도 반영되지 않음
+```
+
+---
+
+### 4.2.12.7 트랜잭션 적용 후 테스트
+
+#### 중복 이메일 요청 (트랜잭션 적용 후)
+
+**요청**:
+```
+POST http://localhost:8080/api/members
+Content-Type: application/json
+
+[
+    {
+        "name": "홍혜창",
+        "email": "hong@spring.ac.kr",
+        "age": 15
+    },
+    {
+        "name": "김우현",
+        "email": "woo@spring.ac.kr",
+        "age": 12
+    },
+    {
+        "name": "홍길동",
+        "email": "hong@spring.ac.kr",  // 중복!
+        "age": 20
+    },
+    {
+        "name": "김구라",
+        "email": "gugugu@spring.ac.kr",
+        "age": 40
+    }
+]
+```
+
+**응답**:
+```json
+{
+    "timestamp": "2025-10-24T04:01:58.229+00:00",
+    "status": 500,
+    "error": "Internal Server Error",
+    "path": "/api/members"
+}
+```
+
+**상태 코드**: `500 Internal Server Error`
+
+---
+
+**DB 상태 확인**:
+```
+GET http://localhost:8080/api/members
+```
+
+**응답**:
+```json
+[]
+```
+
+**결과**: DB에 **아무도 저장되지 않음** ✅
+
+**트랜잭션 적용 전후 비교**:
+
+| 구분 | 트랜잭션 적용 전 | 트랜잭션 적용 후 |
+|-----|----------------|----------------|
+| **홍혜창** | ✅ DB에 저장됨 | ❌ 롤백됨 |
+| **김우현** | ✅ DB에 저장됨 | ❌ 롤백됨 |
+| **홍길동** | ❌ 저장 안 됨 (예외) | ❌ 저장 안 됨 (예외) |
+| **김구라** | ❌ 처리 안 됨 | ❌ 처리 안 됨 |
+| **최종 결과** | ⚠️ 부분 성공 (2명 저장) | ✅ 완전 실패 (0명 저장) |
+| **ACID 준수** | ❌ 원자성, 일관성 위반 | ✅ ACID 원칙 준수 |
+
+---
+
+
 
 
 
