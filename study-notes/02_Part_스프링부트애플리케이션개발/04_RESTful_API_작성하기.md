@@ -12,6 +12,7 @@ docs: [Ch04] RESTful API 작성하기 - 테스트 방법 추가
 
 # 마지막 완료 (4.4 추가)
 docs: [Ch04] RESTful API 작성하기 - 웹 필터 추가 및 완료
+docs: [Ch04] 테스트 - 테스트 작성 완료
 -->
 
 ## 📌 학습 목표
@@ -4511,6 +4512,1830 @@ GET http://localhost:8080/api/members
 | **ACID 준수** | ❌ 원자성, 일관성 위반 | ✅ ACID 원칙 준수 |
 
 ---
+
+## 4.3 테스트
+
+### 4.3.1 테스트의 중요성
+
+#### 테스트란?
+
+**테스트(Testing)**: 작성한 코드가 의도한 대로 정확하게 동작하는지 검증하는 과정
+
+**테스트의 목적**:
+
+| 목적 | 설명 |
+|-----|------|
+| **품질 보장** | 소프트웨어가 요구사항을 충족하는지 확인 |
+| **버그 예방** | 코드 변경 시 기존 기능이 깨지지 않는지 검증 (회귀 버그 방지) |
+| **리팩토링 안정성** | 코드 개선 시 기능이 유지되는지 보장 |
+| **문서화** | 테스트 코드 자체가 기능의 사용법을 보여주는 문서 역할 |
+
+---
+
+#### TDD (Test-Driven Development)
+
+**TDD**: 테스트를 먼저 작성하고, 그 테스트를 통과하는 코드를 작성하는 개발 방법론
+
+**TDD 개발 순서**:
+```
+1. 실패하는 테스트 작성 (Red)
+    ↓
+2. 테스트를 통과하는 최소한의 코드 작성 (Green)
+    ↓
+3. 코드 개선 (Refactor)
+    ↓
+반복...
+```
+
+**핵심**: 테스트를 적극적으로 활용하여 안정적인 소프트웨어 개발
+
+---
+
+### 4.3.2 Spring Boot 테스트 환경 구성
+
+#### 필수 의존성 (build.gradle)
+
+Spring Boot 프로젝트를 생성하면 테스트 관련 의존성이 자동으로 추가됩니다.
+
+```gradle
+dependencies {
+    // Spring Boot 테스트 스타터 (JUnit 5, Mockito, AssertJ 등 포함)
+    testImplementation 'org.springframework.boot:spring-boot-starter-test'
+    
+    // JUnit 플랫폼 런처 (테스트 실행 환경)
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    
+    // 테스트 환경에서 Lombok 사용을 위한 의존성
+    testCompileOnly 'org.projectlombok:lombok'
+    testAnnotationProcessor 'org.projectlombok:lombok'
+}
+```
+
+**주요 라이브러리**:
+
+| 라이브러리 | 역할 |
+|----------|------|
+| **JUnit 5** | Java 테스트 프레임워크 (테스트 실행 및 관리) |
+| **Mockito** | Mock 객체 생성 라이브러리 (단위 테스트용) |
+| **AssertJ** | 유창한(Fluent) 검증 라이브러리 |
+| **Spring Test** | Spring 통합 테스트 지원 |
+
+---
+
+#### 테스트 코드 위치 및 관례
+
+**테스트 코드의 위치**:
+```
+프로젝트 루트
+├── src
+│   ├── main
+│   │   └── java
+│   │       └── com.example.restfulapiSample
+│   │           ├── controller
+│   │           │   └── MemberController.java
+│   │           ├── service
+│   │           │   └── MemberService.java
+│   │           └── repository
+│   │               └── MemberRepository.java
+│   │
+│   └── test  ← 테스트 코드 위치
+│       └── java
+│           └── com.example.restfulapiSample  ← main과 동일한 패키지 구조
+│               ├── controller
+│               │   └── MemberControllerTests.java
+│               ├── service
+│               │   └── MemberServiceTests.java
+│               └── repository
+│                   └── MemberRepositoryTests.java
+```
+
+**테스트 코드 작성 관례**:
+
+| 항목 | 규칙 | 예시 |
+|-----|------|------|
+| **위치** | `src/test/java` 폴더 | 실제 코드와 분리 |
+| **패키지** | 테스트 대상과 동일한 패키지 구조 | `com.example.restfulapiSample.service` |
+| **클래스명** | 테스트 대상 클래스명 + `Tests` | `MemberService` → `MemberServiceTests` |
+
+**핵심**: 테스트 코드는 `test` 폴더에 `main`과 동일한 패키지 구조로 작성하며, 클래스명 뒤에 `Tests`를 붙이는 것이 관례!
+
+---
+
+### 4.3.3 기본 테스트 클래스 이해
+
+#### RestfulapiSampleApplicationTests
+
+프로젝트를 생성하면 기본적으로 제공되는 테스트 클래스입니다.
+
+```java
+package com.example.restfulapiSample;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.SpringBootTest;
+
+@SpringBootTest
+class RestfulapiSampleApplicationTests {
+
+    @Test
+    void contextLoads() {
+    }
+}
+```
+
+---
+
+#### @SpringBootTest 어노테이션
+
+**@SpringBootTest**: Spring Boot 테스트에서 가장 핵심적인 어노테이션
+
+**역할**:
+
+| 순서 | 역할 | 설명 |
+|-----|------|------|
+| **1. 전체 애플리케이션 컨텍스트 로딩** | 실제 운영 환경 구성 | `@SpringBootApplication`이 붙은 메인 클래스를 찾아 전체 Spring 컨테이너를 구동하고, 실제 운영 환경처럼 모든 빈 객체들을 생성하고 의존성 주입(DI)을 완료 |
+| **2. 준비된 빈 객체의 주입 허용** | 테스트에서 빈 사용 가능 | 컨텍스트 로딩이 완료된 후, 테스트 클래스 내에서 `@Autowired`를 통해 실제 빈 객체들을 주입받아 테스트에 사용 가능 |
+
+**의미**:
+```
+@SpringBootTest가 붙은 테스트 클래스
+= "실제 애플리케이션과 동일한 환경을 준비해라"
+= "모든 빈을 생성하고 주입까지 완료해라"
+```
+
+**핵심**: `@SpringBootTest`는 실제 운영 환경과 최대한 유사한 통합 테스트 환경을 제공!
+
+---
+
+#### contextLoads() 메서드
+
+```java
+@Test
+void contextLoads() {
+}
+```
+
+**역할**: 스프링 컨테이너가 정상적으로 구동되는지 검증하는 가장 기본적인 테스트
+
+**동작 원리**:
+
+```
+1. JUnit이 @SpringBootTest 클래스 발견
+    ↓
+2. Spring 컨테이너 구동 시작
+    ↓
+3. 모든 빈 객체 생성 및 의존성 주입 수행
+    ↓
+4. 컨텍스트 로딩 성공 시 contextLoads() 실행
+    ↓
+5. 메서드 내용이 비어있지만, 예외 없이 실행 완료
+    ↓
+6. 테스트 성공 ✅
+```
+
+**검증 내용**:
+- 메서드가 비어있지만, 이 메서드가 예외 없이 실행되었다는 사실 자체가 **"Spring 컨테이너가 모든 빈을 정상적으로 생성하고 주입했다"**는 것을 증명
+- 설정 오류, 순환 참조, 빈 생성 실패 등이 있으면 이 테스트에서 실패
+
+**핵심**: `contextLoads()`는 가장 기본적인 **"환경 구성 검증 테스트"**!
+
+---
+
+### 4.3.4 테스트 실행 방법
+
+#### 테스트 실행 방법 비교
+
+| 구분 | 실행 단위 | 실행 방법 | 주요 용도 |
+|-----|---------|----------|----------|
+| **단일 클래스/메서드 테스트** | 특정 테스트 클래스 또는 메서드 | IDE (IntelliJ, Eclipse 등)에서 해당 테스트 파일 또는 메서드 우측 클릭 후 'Run' 선택 | 개발 중 특정 기능에 대한 빠른 검증 및 디버깅 |
+| **전체 테스트 실행** | 프로젝트 내 모든 테스트 | Gradle 사용: `tasks` → `verification` → `test` 실행<br>또는 터미널에서 `./gradlew test` | 빌드 전 또는 배포 전 프로젝트의 전반적인 안정성 확인 |
+
+---
+
+#### 1. 단일 클래스 실행 (IDE 사용)
+
+**IntelliJ에서 실행**:
+
+```
+1. 테스트 클래스 파일 열기
+    예: RestfulapiSampleApplicationTests.java
+
+2. 클래스명 또는 메서드명 우측 클릭
+    ↓
+3. "Run 'RestfulapiSampleApplicationTests'" 선택
+    또는 메서드 단위: "Run 'contextLoads()'" 선택
+    ↓
+4. 테스트 실행 및 결과 확인
+```
+
+**장점**:
+- ✅ 매우 빠름 (특정 테스트만 실행)
+- ✅ 디버깅 모드로 쉽게 전환 가능
+- ✅ 즉각적인 결과 확인
+
+**단점**:
+- ⚠️ 전체 프로젝트 상태를 대변하지 못함
+
+---
+
+#### 2. 전체 테스트 실행 (Gradle 사용)
+
+**IntelliJ Gradle 탭에서 실행**:
+
+```
+1. IntelliJ 우측의 Gradle 탭 클릭
+    ↓
+2. 프로젝트명 → Tasks → verification → test 더블클릭
+    ↓
+3. 모든 테스트 실행 및 결과 확인
+```
+
+**터미널에서 실행**:
+
+```bash
+# 프로젝트 루트 디렉토리에서
+./gradlew test
+```
+
+**장점**:
+- ✅ 프로젝트의 모든 테스트를 한 번에 실행
+- ✅ CI/CD 파이프라인에서 자동화 가능
+- ✅ 전체 안정성 보장
+
+**단점**:
+- ⚠️ 시간이 오래 걸릴 수 있음 (테스트가 많을 경우)
+
+---
+
+#### 테스트 실행 전략
+
+| 상황 | 권장 방법 |
+|-----|---------|
+| **개발 중 특정 기능 검증** | 단일 클래스/메서드 실행 (IDE) |
+| **리팩토링 후 영향 범위 확인** | 관련 테스트 클래스 실행 (IDE) |
+| **커밋 전 최종 확인** | 전체 테스트 실행 (Gradle) |
+| **빌드 및 배포 전** | 전체 테스트 실행 (Gradle) |
+
+---
+
+### 4.3.5 Repository 테스트 작성
+
+#### MemberRepository 인터페이스
+
+테스트 대상이 되는 Repository입니다.
+
+```java
+package com.example.restfulapiSample.repository;
+
+import com.example.restfulapiSample.model.Member;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public interface MemberRepository extends JpaRepository<Member, Long> {
+
+    // 함수명 쿼리 메서드
+    List<Member> findByName(String name);
+    List<Member> findByEmail(String email);
+    List<Member> findByNameAndEmail(String name, String email);
+    List<Member> findByNameOrEmail(String name, String email);
+    List<Member> findByNameContaining(String name);
+    List<Member> findByAgeGreaterThan(Integer age);
+    List<Member> findByAgeLessThan(Integer age);
+    List<Member> findByAgeBetween(Integer minAge, Integer maxAge);
+    List<Member> findByAgeGreaterThanEqual(Integer age);
+    List<Member> findByAgeLessThanEqual(Integer age);
+    List<Member> findByNameLike(String name);
+    List<Member> findByAge(Integer age);
+    
+    // 정렬
+    List<Member> findAllByOrderByAgeDesc();
+    List<Member> findAllByOrderByNameAsc();
+    
+    // @Query 어노테이션 사용
+    @Query("select m from Member m where m.name = :name")
+    List<Member> findMemberByName(@Param("name") String name);
+    
+    @Query("select m from Member m where m.name = :name and m.email = :email")
+    List<Member> findMemberByNameEmail(@Param("name") String name, @Param("email") String email);
+}
+```
+
+---
+
+#### MemberRepositoryTests 작성
+
+**테스트 환경에서 Lombok 사용을 위한 의존성 추가** (build.gradle):
+
+```gradle
+dependencies {
+    // ... 기존 의존성 ...
+    
+    // 테스트 환경에서 Lombok 사용
+    testCompileOnly 'org.projectlombok:lombok'
+    testAnnotationProcessor 'org.projectlombok:lombok'
+}
+```
+
+**주의**: 이 의존성을 추가해야 테스트 코드에서 `@Slf4j`, `@Builder` 등 Lombok 어노테이션을 사용할 수 있습니다!
+
+---
+
+**MemberRepositoryTests.java**:
+
+```java
+package com.example.restfulapiSample.repository;
+
+import com.example.restfulapiSample.model.Member;
+import lombok.extern.slf4j.Slf4j;
+import org.junit.jupiter.api.*;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@SpringBootTest
+@Slf4j
+@DisplayName("MemberRepository 테스트")
+public class MemberRepositoryTests {
+    
+    @Autowired
+    private MemberRepository memberRepository;
+
+    @BeforeEach
+    public void doBeforeEach() {
+        memberRepository.save(Member.builder()
+                .name("홍혜창")
+                .email("hyechang@spring.ac.kr")
+                .age(30)
+                .enabled(true)
+                .build());
+        memberRepository.save(Member.builder()
+                .name("김우현")
+                .email("woohyun@spring.ac.kr")
+                .age(20)
+                .enabled(true)
+                .build());
+        memberRepository.save(Member.builder()
+                .name("김구라")
+                .email("gugugu@spring.ac.kr")
+                .age(20)
+                .enabled(true)
+                .build());
+        memberRepository.save(Member.builder()
+                .name("손흥민")
+                .email("sonny@spring.ac.kr")
+                .age(33)
+                .enabled(true)
+                .build());
+    }
+
+    @AfterEach
+    public void doAfterEach() {
+        memberRepository.deleteAll();
+    }
+
+    @Test
+    @DisplayName("첫번째 테스트")
+    public void testUserCase1() {
+        // count() 검증
+        assertThat(memberRepository.count()).isEqualTo(4);
+        
+        // findByName() 검증
+        assertThat(memberRepository.findByName("홍혜창").size()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("두번째 테스트")
+    @Disabled("잠시 테스트 중단")
+    public void testUserCase2() {
+        assertThat(memberRepository.findByNameLike("%현").size()).isEqualTo(1);
+        assertThat(memberRepository.findByAge(20).size()).isEqualTo(2);
+    }
+
+    @RepeatedTest(value = 3, name = "테스트 종류: {displayName} 중 {currentRepetition}/{totalRepetitions}")
+    @DisplayName("세번째 테스트")
+    public void testUserCase3() {
+        assertThat(memberRepository.findAllByOrderByAgeDesc().get(0).getName())
+                .isEqualTo("손흥민");
+    }
+}
+```
+
+---
+
+#### 테스트 환경에서의 의존성 주입
+
+**@Autowired vs @RequiredArgsConstructor**:
+
+| 구분 | @Autowired (필드 주입) | @RequiredArgsConstructor (생성자 주입) |
+|-----|---------------------|--------------------------------|
+| **작동 원리** | 필드에 직접 주입 | `final` 필드를 위한 생성자를 만들어 주입 |
+| **테스트 환경 안정성** | ✅ 안정적 | ⚠️ JUnit 충돌 가능성 있음 |
+| **권장 여부** | ✅ 테스트 코드에서 권장 | ⚠️ 테스트 코드에서는 비권장 |
+
+**테스트 환경에서 @Autowired를 사용하는 이유**:
+
+**문제 상황**:
+```java
+@SpringBootTest
+@RequiredArgsConstructor  // ⚠️ 문제 발생 가능
+public class MemberRepositoryTests {
+    private final MemberRepository memberRepository;
+    // ...
+}
+```
+
+**발생하는 오류**:
+- `ParameterResolutionException`: JUnit이 생성자 매개변수를 해결하지 못함
+- JUnit이 Spring보다 먼저 생성자를 호출하려고 시도하여 충돌 발생
+
+**해결 방법**:
+```java
+@SpringBootTest
+public class MemberRepositoryTests {
+    @Autowired  // ✅ 테스트 환경에서 안전
+    private MemberRepository memberRepository;
+    // ...
+}
+```
+
+**핵심**: 
+- **애플리케이션 코드**에서는 `@RequiredArgsConstructor` + 생성자 주입 권장 (불변성)
+- **테스트 코드**에서는 `@Autowired` + 필드 주입 권장 (안정성)
+
+---
+
+#### @BeforeEach와 @AfterEach
+
+**테스트 생명주기 관리 어노테이션**:
+
+| 어노테이션 | 실행 시점 | 역할 |
+|----------|---------|------|
+| **@BeforeEach** | 각 `@Test` 메서드 실행 **직전** | 테스트 환경 초기화 (테스트 데이터 준비) |
+| **@AfterEach** | 각 `@Test` 메서드 실행 **직후** | 테스트 환경 정리 (데이터 삭제, 자원 해제) |
+
+---
+
+**실행 순서 예시**:
+
+```
+MemberRepositoryTests 실행 시작
+    ↓
+doBeforeEach() 실행  ← 4명의 회원 저장
+    ↓
+testUserCase1() 실행  ← 첫 번째 테스트
+    ↓
+doAfterEach() 실행  ← 모든 회원 삭제
+    ↓
+doBeforeEach() 실행  ← 4명의 회원 저장 (다시)
+    ↓
+testUserCase2() 실행  ← 두 번째 테스트
+    ↓
+doAfterEach() 실행  ← 모든 회원 삭제
+    ↓
+doBeforeEach() 실행  ← 4명의 회원 저장 (다시)
+    ↓
+testUserCase3() 실행  ← 세 번째 테스트
+    ↓
+doAfterEach() 실행  ← 모든 회원 삭제
+    ↓
+테스트 종료
+```
+
+**핵심**: 각 테스트 메서드는 **완전히 독립적인 환경**에서 실행됨!
+
+---
+
+**테스트 데이터와 실제 DB**:
+
+| 항목 | 설명 |
+|-----|------|
+| **실제 DB 저장 여부** | ❌ 저장되지 않음 |
+| **트랜잭션 롤백** | `@SpringBootTest`는 기본적으로 `@Transactional`이 적용되어 각 테스트가 끝나면 자동 롤백 |
+| **@AfterEach의 역할** | 트랜잭션 롤백과 별개로 **명시적으로 데이터를 정리**하여 테스트 간 간섭 방지 |
+
+**핵심**: 
+- 테스트 중 DB 변경사항은 **임시 트랜잭션 내에서만** 이루어짐
+- 테스트 종료 시 자동으로 롤백되어 **실제 DB에는 영향 없음**
+
+---
+
+#### AssertJ와 assertThat
+
+**AssertJ**: 유창한(Fluent) 검증 라이브러리
+
+**assertThat의 의미**:
+```java
+assertThat(memberRepository.count()).isEqualTo(4);
+```
+
+해석: "나는 `memberRepository.count()`의 결과가 `4`와 같아야 한다고 주장한다"
+
+---
+
+**assertThat의 작동 원리**:
+
+| 단계 | 코드 | 역할 |
+|-----|------|------|
+| **1. 검증 대상 전달** | `assertThat(actual)` | 실제 값(Actual Value)을 검증 체인의 시작점으로 전달 |
+| **2. 검증 객체 반환** | `AbstractLongAssert<?>` | 해당 타입에 대한 검증 메서드들을 담은 객체 반환 |
+| **3. 조건 검증** | `.isEqualTo(expected)` | 실제 값이 기대 값과 같은지 검증 |
+
+---
+
+**if 문과의 차이점**:
+
+| 구분 | assertThat(...).isEqualTo(...) | if (... == ...) |
+|-----|-------------------------------|----------------|
+| **테스트 실패 처리** | ✅ 검증 실패 시 JUnit에게 실패를 알리고 즉시 중단 | ❌ 조건이 거짓이어도 테스트 계속 진행 (수동으로 예외를 던져야 함) |
+| **에러 메시지** | ✅ 자동으로 상세한 메시지 생성 (`Expected 4, but was 5`) | ❌ 개발자가 직접 작성해야 함 |
+| **가독성** | ✅ 메서드 체이닝으로 자연스러운 문장처럼 읽힘 | ❌ 조건문 형태로 의도 파악 어려움 |
+
+---
+
+**예시**:
+
+```java
+// ✅ AssertJ 사용 (권장)
+assertThat(5).isEqualTo(4);
+// 결과: Expected 4, but was 5 (매우 명확한 에러 메시지)
+
+// ❌ if 문 사용 (비권장)
+if (5 != 4) {
+    // 개발자가 직접 예외를 던지지 않으면 테스트는 성공 처리될 수 있음
+    throw new AssertionError("값이 다릅니다");
+}
+```
+
+**핵심**: `assertThat`은 테스트의 의도를 명확히 표현하고, 실패 시 상세한 정보를 제공!
+
+---
+
+#### 주요 검증 메서드
+
+**AssertJ의 주요 검증 메서드**:
+
+| 메서드 | 의미 | 예시 |
+|-------|------|------|
+| **isEqualTo(expected)** | 같음 | `assertThat(count).isEqualTo(4)` |
+| **isNotEqualTo(expected)** | 다름 | `assertThat(count).isNotEqualTo(0)` |
+| **isNull()** | null임 | `assertThat(member).isNull()` |
+| **isNotNull()** | null이 아님 | `assertThat(member).isNotNull()` |
+| **isZero()** | 0임 | `assertThat(age).isZero()` |
+| **isNotZero()** | 0이 아님 | `assertThat(id).isNotZero()` |
+| **isGreaterThan(value)** | 초과 | `assertThat(age).isGreaterThan(18)` |
+| **isLessThan(value)** | 미만 | `assertThat(age).isLessThan(65)` |
+| **contains(element)** | 포함 | `assertThat(list).contains(member)` |
+| **isEmpty()** | 비어있음 | `assertThat(list).isEmpty()` |
+
+---
+
+#### JUnit 5 테스트 어노테이션
+
+**@DisplayName**: 테스트 이름을 사용자 친화적으로 표시
+
+```java
+@DisplayName("MemberRepository 테스트")
+public class MemberRepositoryTests {
+    
+    @Test
+    @DisplayName("첫번째 테스트")
+    public void testUserCase1() {
+        // ...
+    }
+}
+```
+
+**효과**:
+
+| 기존 | @DisplayName 적용 후 |
+|-----|-------------------|
+| `MemberRepositoryTests` | `MemberRepository 테스트` |
+| `testUserCase1()` | `첫번째 테스트` |
+
+**장점**:
+- ✅ 테스트 보고서 가독성 향상
+- ✅ 테스트 의도를 명확히 표현
+- ✅ 한글 등 다양한 언어 사용 가능
+
+---
+
+**@Disabled**: 테스트 비활성화
+
+```java
+@Test
+@DisplayName("두번째 테스트")
+@Disabled("잠시 테스트 중단")
+public void testUserCase2() {
+    // 이 테스트는 실행되지 않음
+}
+```
+
+**사용 시나리오**:
+
+| 상황 | 설명 |
+|-----|------|
+| **개발 중인 테스트** | 아직 완벽하게 구현되지 않아 빌드를 깨뜨리는 테스트를 잠시 제외 |
+| **환경 의존적 테스트** | 특정 환경(DB, 네트워크 등)이 갖춰지지 않으면 실행할 수 없는 테스트를 임시로 건너뛰기 |
+| **장기 실행 테스트** | 시간이 오래 걸리는 테스트를 평상시에는 제외하고 특정 시점에만 실행 |
+
+**결과**: 테스트가 **생략(Skipped)** 되어 실행되지 않음
+
+---
+
+**@RepeatedTest**: 테스트 반복 실행
+
+```java
+@RepeatedTest(value = 3, name = "테스트 종류: {displayName} 중 {currentRepetition}/{totalRepetitions}")
+@DisplayName("세번째 테스트")
+public void testUserCase3() {
+    // 이 테스트는 3번 반복 실행됨
+}
+```
+
+**매개변수**:
+
+| 속성 | 설명 | 예시 |
+|-----|------|------|
+| **value** | 반복 횟수 | `value = 3` → 3번 실행 |
+| **name** | 각 반복의 표시 이름 | `{displayName}`, `{currentRepetition}`, `{totalRepetitions}` 사용 가능 |
+
+**사용 시나리오**:
+
+| 상황 | 설명 |
+|-----|------|
+| **안정성 검증** | 특정 테스트가 반복 실행될 때도 항상 동일한 결과(성공)를 내는지 확인 |
+| **무작위성 검증** | 난수(Randomness)나 외부 요소에 의존하는 로직을 충분히 테스트 |
+| **동시성 문제 탐지** | 반복 실행으로 타이밍 이슈나 경쟁 조건(Race Condition) 발견 |
+
+**실행 결과 예시**:
+
+```
+[root]
+  MemberRepository 테스트
+    ✅ 첫번째 테스트
+    ⊘ 두번째 테스트 (생략)
+    ✅ 테스트 종류: 세번째 테스트 중 1/3
+    ✅ 테스트 종류: 세번째 테스트 중 2/3
+    ✅ 테스트 종류: 세번째 테스트 중 3/3
+```
+
+---
+
+#### 테스트 실행 결과 분석
+
+**초기 테스트 실패 예시**:
+
+```java
+@Test
+@DisplayName("첫번째 테스트")
+public void testUserCase1() {
+    // ❌ 실패: @BeforeEach에서 4명을 저장했는데 0을 기대
+    assertThat(memberRepository.count()).isEqualTo(0);
+    
+    assertThat(memberRepository.findByName("홍혜창").size()).isEqualTo(1);
+}
+```
+
+**실패 원인**:
+- `@BeforeEach`에서 4명의 회원을 저장
+- 테스트는 `count()`가 0일 것을 기대
+- 실제 값은 4 → **Assertion 실패**
+
+**에러 메시지**:
+```
+Expected: 0L
+but was: 4L
+```
+
+---
+
+**수정된 테스트 (성공)**:
+
+```java
+@Test
+@DisplayName("첫번째 테스트")
+public void testUserCase1() {
+    // ✅ 성공: 4명을 저장했으므로 4를 기대
+    assertThat(memberRepository.count()).isEqualTo(4);
+    
+    // ✅ 성공: "홍혜창"이라는 이름을 가진 회원 1명 존재
+    assertThat(memberRepository.findByName("홍혜창").size()).isEqualTo(1);
+}
+```
+
+---
+
+#### JUnit 테스트 실패 원칙
+
+**Fail-Fast 원칙**: 하나의 테스트라도 실패하면 전체 테스트는 실패
+
+**테스트 실패 전파**:
+
+```
+테스트 클래스 (MemberRepositoryTests)
+├── testUserCase1() ❌ 실패
+├── testUserCase2() ⊘ 생략
+└── testUserCase3() ✅ 성공
+
+최종 결과: ❌ FAILED
+```
+
+**원칙**:
+- 테스트 클래스 내의 **단 하나의 @Test 메서드라도 실패**하면 전체 테스트는 실패
+- Gradle 태스크(`:test`)는 `FAILED`를 반환하고 빌드가 실패
+
+**메서드 내 Assertion 실패**:
+
+```java
+@Test
+public void test() {
+    assertThat(count).isEqualTo(0);  // ❌ 여기서 실패
+    assertThat(name).isEqualTo("홍길동");  // 실행되지 않음
+}
+```
+
+**핵심**: 
+- 첫 번째 `assertThat`이 실패하는 순간 메서드 즉시 중단
+- 이후의 검증은 실행되지 않음
+
+---
+
+### 4.3.6 Service 통합 테스트
+
+#### MemberServiceTests 작성
+
+**통합 테스트**: Service와 Repository가 함께 작동하는 것을 검증
+
+```java
+package com.example.restfulapiSample.service;
+
+import com.example.restfulapiSample.dto.MemberRequest;
+import com.example.restfulapiSample.dto.MemberResponse;
+import com.example.restfulapiSample.repository.MemberRepository;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+
+import java.util.List;
+
+import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+
+@SpringBootTest
+@DisplayName("MemberServiceTests 테스트")
+public class MemberServiceTests {
+    
+    @Autowired
+    private MemberService memberService;
+    
+    @Autowired
+    private MemberRepository memberRepository;
+
+    @AfterEach
+    public void afterEach() {
+        memberRepository.deleteAll();
+    }
+
+    @Test
+    @DisplayName("회원 추가 및 조회")
+    public void testUsers() {
+        // 첫 번째 회원 생성
+        MemberRequest memberRequest = MemberRequest.builder()
+                .name("홍혜창")
+                .email("hyechang@spring.ac.kr")
+                .age(10)
+                .build();
+        MemberResponse memberResponse = memberService.create(memberRequest);
+        
+        // ID가 잘 생성되었는지 검증
+        assertThat(memberResponse.getId()).isNotNull();
+
+        // 두 번째 회원 생성
+        memberRequest = MemberRequest.builder()
+                .name("김우현")
+                .email("woohyun@spring.ac.kr")
+                .age(10)
+                .build();
+        memberResponse = memberService.create(memberRequest);
+        
+        // ID가 잘 생성되었는지 검증
+        assertThat(memberResponse.getId()).isNotNull();
+
+        // 전체 회원 조회
+        List<MemberResponse> memberResponses = memberService.findAll();
+        assertThat(memberResponses.size()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("트랜잭션 커밋 테스트")
+    public void testCommit() {
+        List<MemberRequest> memberRequests = List.of(
+                MemberRequest.builder().name("김우현").email("woohyun@spring.ac.kr").age(10).build(),
+                MemberRequest.builder().name("홍혜창").email("hyechang@spring.ac.kr").age(10).build(),
+                MemberRequest.builder().name("홍길동").email("hong@spring.ac.kr").age(10).build(),
+                MemberRequest.builder().name("김구라").email("gugu@spring.ac.kr").age(10).build()
+        );
+
+        try {
+            memberService.createBatch(memberRequests);
+        } catch (Exception e) {
+            // 예외 발생 시 무시
+        }
+
+        // 정상적으로 모두 커밋되었는지 검증
+        assertThat(memberService.findAll().size()).isEqualTo(4);
+    }
+
+    @Test
+    @DisplayName("트랜잭션 롤백 테스트")
+    public void testRollback() {
+        List<MemberRequest> memberRequests = List.of(
+                MemberRequest.builder().name("김우현").email("woohyun@spring.ac.kr").age(10).build(),
+                MemberRequest.builder().name("홍혜창").email("hong@spring.ac.kr").age(10).build(),
+                MemberRequest.builder().name("홍길동").email("hong@spring.ac.kr").age(10).build(),  // ⚠️ 중복 이메일!
+                MemberRequest.builder().name("김구라").email("gugu@spring.ac.kr").age(10).build()
+        );
+
+        try {
+            memberService.createBatch(memberRequests);
+        } catch (Exception e) {
+            // 예외 발생 시 무시
+        }
+
+        // 롤백되어 아무것도 저장되지 않았는지 검증
+        assertThat(memberService.findAll().size()).isEqualTo(0);
+    }
+}
+```
+
+---
+
+#### 통합 테스트 vs 단위 테스트
+
+**통합 테스트 (Integration Test)**:
+
+| 특징 | 설명 |
+|-----|------|
+| **정의** | 여러 컴포넌트가 함께 작동하는 것을 검증 |
+| **범위** | Service + Repository + Database |
+| **의존성** | 실제 빈 객체 사용 (`@Autowired`) |
+| **DB 연결** | 실제 DB(H2 인메모리) 사용 |
+| **속도** | 상대적으로 느림 |
+| **검증 내용** | 전체 흐름이 정상적으로 작동하는지 |
+
+**단위 테스트 (Unit Test)**:
+
+| 특징 | 설명 |
+|-----|------|
+| **정의** | 각 컴포넌트를 독립적으로 검증 |
+| **범위** | Service만 (Repository는 Mock) |
+| **의존성** | 가짜 객체 사용 (`@MockitoBean`) |
+| **DB 연결** | DB 사용하지 않음 (Mock 응답) |
+| **속도** | 매우 빠름 |
+| **검증 내용** | Service의 비즈니스 로직만 검증 |
+
+---
+
+**현재 코드의 특징**:
+
+```java
+@SpringBootTest
+public class MemberServiceTests {
+    @Autowired
+    private MemberService memberService;
+    
+    @Autowired
+    private MemberRepository memberRepository;  // ← 실제 Repository 사용
+}
+```
+
+**분석**:
+- `MemberService`를 테스트하지만 내부에서 **실제 `MemberRepository`**를 사용
+- Repository는 **실제 DB(H2 인메모리)**에 연결
+- Service와 Repository가 **함께 작동하는 것**을 검증
+
+**결론**: 이 테스트는 **통합 테스트**!
+
+---
+
+#### 테스트 환경에서 예외 처리
+
+**트랜잭션 롤백 테스트의 문제**:
+
+```java
+@Test
+public void testRollback() {
+    // 중복 이메일 포함 → 예외 발생 예상
+    memberService.createBatch(memberRequests);  // ❌ 예외 발생 시 테스트 중단!
+    
+    // 이 검증 코드에 도달하지 못함
+    assertThat(memberService.findAll().size()).isEqualTo(0);
+}
+```
+
+**문제점**:
+- `createBatch()`에서 예외 발생 시 메서드가 즉시 종료
+- 롤백 검증 코드(`assertThat...`)가 실행되지 않음
+- JUnit이 테스트를 **"실행 중 오류(Error)"**로 처리
+
+---
+
+**해결 방법 1: try-catch 사용 (현재 코드)**
+
+```java
+@Test
+public void testRollback() {
+    try {
+        memberService.createBatch(memberRequests);
+    } catch (Exception e) {
+        // 예외를 잡아서 테스트가 계속 진행되도록 함
+    }
+    
+    // 롤백 검증 가능
+    assertThat(memberService.findAll().size()).isEqualTo(0);
+}
+```
+
+**장점**:
+- ✅ Java 기본 문법만 사용
+- ✅ 테스트가 중단되지 않고 계속 진행
+
+**단점**:
+- ⚠️ 예외 발생 여부를 명확히 검증하지 못함
+- ⚠️ 만약 예외가 발생하지 않으면 테스트가 잘못된 이유로 성공할 수 있음
+
+---
+
+**해결 방법 2: assertThrows 사용 (권장)**
+
+```java
+@Test
+public void testRollback() {
+    // 예외 발생 자체를 검증
+    assertThrows(DataIntegrityViolationException.class, () -> {
+        memberService.createBatch(memberRequests);
+    });
+    
+    // 롤백 검증
+    assertThat(memberService.findAll().size()).isEqualTo(0);
+}
+```
+
+**장점**:
+- ✅ 예외 발생 여부를 명확히 검증
+- ✅ 예상한 예외 타입이 아니면 테스트 실패
+- ✅ 테스트의 의도가 명확
+
+**단점**:
+- JUnit API 필요
+
+---
+
+**비교 정리**:
+
+| 방법 | 가독성 | 예외 검증 | 권장 여부 |
+|-----|-------|---------|---------|
+| **try-catch** | 보통 | ❌ 없음 | △ 동작은 하지만 비권장 |
+| **assertThrows** | 높음 | ✅ 명확 | ✅ 권장 |
+
+**핵심**: 
+- `try-catch`는 기술적으로 가능하지만 테스트의 의도가 불명확
+- `assertThrows`는 "이 코드는 예외를 발생시켜야 한다"는 검증을 명확히 표현
+
+---
+
+### 4.3.7 Controller 통합 테스트 (MockMvc)
+
+#### MockMvc의 필요성
+
+**기존 방식의 문제점**:
+
+```
+1. Spring Boot 애플리케이션 실행
+    → WAS(Tomcat) 구동 (포트 8080 바인딩)
+    ↓
+2. Postman으로 HTTP 요청 전송
+    → http://localhost:8080/api/members
+    ↓
+3. 응답 확인
+```
+
+**문제점**:
+
+| 문제 | 설명 |
+|-----|------|
+| **시간 소모** | 서버를 구동하고 포트 바인딩을 기다리는 데 시간 소요 (초 단위) |
+| **자원 소모** | WAS가 메모리(RAM)와 CPU 자원을 소모 |
+| **반복 작업** | 코드 수정 → 서버 재시작 → Postman 요청 → 결과 확인 (매우 비효율적) |
+| **자동화 불가** | 수동으로 Postman에서 요청을 보내야 하므로 CI/CD 파이프라인에 통합 어려움 |
+
+---
+
+**MockMvc의 해결책**:
+
+**MockMvc**: 실제 서버를 구동하지 않고 **가상의 HTTP 요청을 생성**하여 Controller를 테스트하는 도구
+
+**특징**:
+
+| 항목 | 설명 |
+|-----|------|
+| **서버 구동** | ❌ WAS를 구동하지 않음 (포트 바인딩 없음) |
+| **요청 생성** | ✅ 가상의 HTTP 요청 객체 생성 |
+| **Controller 호출** | ✅ Spring MVC 내부 메커니즘을 통해 Controller에 직접 전달 |
+| **응답 포착** | ✅ Controller의 응답을 가로채서 검증 |
+| **속도** | ✅ 매우 빠름 (네트워크 부하 없음) |
+| **자동화** | ✅ 코드로 작성되어 자동화 가능 |
+
+---
+
+**MockMvc의 역할 비유**:
+
+```
+실제 환경 (Postman):
+클라이언트(Postman) → 네트워크 → WAS(Tomcat) → Controller
+
+MockMvc 환경:
+MockMvc(가상 클라이언트) → Spring MVC 내부 → Controller
+```
+
+**핵심**: 
+- MockMvc는 **"서버 없이 Controller를 테스트"**할 수 있게 해줌
+- 실제 네트워크를 거치지 않으므로 **매우 빠름**
+- **통합 테스트**로 Controller → Service → Repository → DB 전체 흐름 검증 가능
+
+---
+
+#### 통합 테스트의 목적
+
+**통합 테스트로 검증하는 범위**:
+
+```
+클라이언트 (HTTP 요청)
+    ↓
+Controller (요청 받기, 응답 반환)
+    ↓
+Service (비즈니스 로직)
+    ↓
+Repository (DB 접근)
+    ↓
+Database (H2)
+```
+
+**핵심**: 
+- Controller 하나만 테스트하는 것이 아님
+- **전체 애플리케이션 스택**이 정상적으로 작동하는지 검증
+- RESTful API의 모든 엔드포인트가 제대로 동작하는지 확인
+
+---
+
+#### MemberControllerTests 작성
+
+**환경 설정**:
+
+```java
+package com.example.restfulapiSample.controller;
+
+import com.example.restfulapiSample.dto.MemberRequest;
+import com.example.restfulapiSample.dto.MemberResponse;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.MvcResult;
+import org.springframework.test.web.servlet.RequestBuilder;
+import org.springframework.test.web.servlet.request.MockMvcRequestBuilders;
+
+import java.util.List;
+
+import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@SpringBootTest
+@AutoConfigureMockMvc
+@DisplayName("회원 컨트롤러 테스트")
+public class MemberControllerTests {
+    
+    @Autowired
+    private MockMvc mockMvc;
+    
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Test
+    @DisplayName("여러 명의 회원 생성 리스트")
+    public void post() throws Exception {
+        // 1. 생성 요청할 회원 정보를 리스트 형식으로 구성
+        List<MemberRequest> memberRequests = List.of(
+                MemberRequest.builder().name("김우현").email("woohyun@spring.ac.kr").age(10).build(),
+                MemberRequest.builder().name("홍혜창").email("hyechang@spring.ac.kr").age(10).build(),
+                MemberRequest.builder().name("홍길동").email("hong@spring.ac.kr").age(10).build(),
+                MemberRequest.builder().name("김구라").email("gugu@spring.ac.kr").age(10).build()
+        );
+
+        // 2. 객체 → JSON으로 변환
+        String requestBody = objectMapper.writeValueAsString(memberRequests);
+
+        // 3. RequestBuilder 생성
+        RequestBuilder requestBuilder = MockMvcRequestBuilders.post("/api/members")
+                .contentType(MediaType.APPLICATION_JSON)
+                .accept(MediaType.APPLICATION_JSON)
+                .content(requestBody);
+
+        // 4. MockMvc를 이용하여 요청하고 결과 받기
+        MvcResult mvcResult = mockMvc.perform(requestBuilder)
+                .andExpect(status().is2xxSuccessful())
+                .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+                .andReturn();
+
+        // 5. 응답 결과 검증 (JSON → 객체로 변환)
+        List<MemberResponse> memberResponses = objectMapper.readValue(
+                mvcResult.getResponse().getContentAsString(),
+                new TypeReference<List<MemberResponse>>() {}
+        );
+
+        // 6. AssertJ를 사용한 검증
+        assertThat(memberResponses.size()).isEqualTo(4);
+        assertThat(memberResponses.get(0).getId()).isNotZero();
+        assertThat(memberResponses.get(0).getName()).isEqualTo("김우현");
+    }
+}
+```
+
+---
+
+#### 어노테이션 설명
+
+**@AutoConfigureMockMvc**:
+
+| 항목 | 설명 |
+|-----|------|
+| **역할** | Spring Context에 `MockMvc` 빈을 자동으로 설정 및 등록 |
+| **효과** | `@Autowired`를 통해 `MockMvc` 객체를 주입받을 수 있음 |
+| **필수 여부** | ✅ MockMvc를 사용하려면 반드시 필요 |
+
+---
+
+#### 주입받는 객체
+
+**1. MockMvc**:
+
+| 항목 | 설명 |
+|-----|------|
+| **역할** | 가짜 HTTP 클라이언트 |
+| **기능** | - 가상의 HTTP 요청 생성<br>- Controller에 요청 전달<br>- 응답 포착 및 검증 |
+| **핵심** | WAS 없이 웹 계층 테스트 가능 |
+
+**2. ObjectMapper**:
+
+| 항목 | 설명 |
+|-----|------|
+| **역할** | JSON 직렬화/역직렬화 담당 |
+| **직렬화** | Java 객체 → JSON 문자열 (`writeValueAsString`) |
+| **역직렬화** | JSON 문자열 → Java 객체 (`readValue`) |
+| **Spring MVC 연결** | `@RequestBody`와 `@ResponseBody`가 내부적으로 사용하는 바로 그 객체 |
+
+---
+
+#### 테스트 단계별 분석
+
+**1단계: 요청 데이터 준비 (Java 객체)**
+
+```java
+List<MemberRequest> memberRequests = List.of(
+        MemberRequest.builder().name("김우현").email("woohyun@spring.ac.kr").age(10).build(),
+        // ...
+);
+```
+
+**설명**:
+- 클라이언트가 서버로 보낼 데이터를 **Java 객체**로 준비
+- 아직 HTTP 요청 형태가 아님
+
+---
+
+**2단계: 객체 → JSON 변환 (직렬화)**
+
+```java
+String requestBody = objectMapper.writeValueAsString(memberRequests);
+```
+
+**설명**:
+- **직렬화(Serialization)**: Java 객체 → JSON 문자열
+- HTTP 요청 본문(Body)은 텍스트(JSON) 형식이어야 하므로 변환 필요
+
+**결과 예시**:
+```json
+[
+    {"name":"김우현","email":"woohyun@spring.ac.kr","age":10},
+    {"name":"홍혜창","email":"hyechang@spring.ac.kr","age":10},
+    ...
+]
+```
+
+**핵심**: 클라이언트가 서버로 데이터를 보낼 때는 JSON 문자열 형태!
+
+---
+
+**3단계: 가상 요청 생성 (RequestBuilder)**
+
+```java
+RequestBuilder requestBuilder = MockMvcRequestBuilders.post("/api/members")
+        .contentType(MediaType.APPLICATION_JSON)
+        .accept(MediaType.APPLICATION_JSON)
+        .content(requestBody);
+```
+
+**설명**:
+- **RequestBuilder**: 가상의 HTTP 요청 객체 생성
+- 이것이 바로 `HttpServletRequest`의 Mock 버전!
+
+**각 메서드의 역할**:
+
+| 메서드 | 역할 | HTTP 요청 요소 |
+|-------|------|--------------|
+| `.post("/api/members")` | POST 메서드로 `/api/members` 경로에 요청 | HTTP 메서드 + URL |
+| `.contentType(MediaType.APPLICATION_JSON)` | 요청 본문의 타입이 JSON임을 명시 | `Content-Type` 헤더 |
+| `.accept(MediaType.APPLICATION_JSON)` | 응답으로 받고 싶은 타입이 JSON임을 명시 | `Accept` 헤더 |
+| `.content(requestBody)` | 요청 본문에 JSON 문자열을 담음 | HTTP Body |
+
+**핵심**: 실제 HTTP 요청의 모든 정보를 가상 객체에 담음!
+
+---
+
+**4단계: 요청 실행 및 응답 검증**
+
+```java
+//MockMvc의 .andExpect() 체인에서 단 하나의 검증이라도 실패하면, 해당 @Test 메서드는 즉시 실패로 처리되고 중단됩니다.
+MvcResult mvcResult = mockMvc.perform(requestBuilder)
+        .andExpect(status().is2xxSuccessful())
+        .andExpect(content().contentType(MediaType.APPLICATION_JSON))
+        .andReturn();
+```
+
+**동작 흐름**:
+
+```
+mockMvc.perform(requestBuilder)
+    ↓
+가상 요청을 Controller에 전달
+    ↓
+Controller → Service → Repository → DB
+    ↓
+Controller가 응답 생성
+    ↓
+MockMvc가 응답 포착
+    ↓
+검증 수행
+```
+
+**각 메서드의 역할**:
+
+| 메서드 | 역할 | 검증 내용 |
+|-------|------|----------|
+| `.perform(requestBuilder)` | 가상 요청을 실행 | Controller 호출 |
+| `.andExpect(status().is2xxSuccessful())` | HTTP 상태 코드 검증 | 200번대 성공 응답인지 확인 |
+| `.andExpect(content().contentType(...))` | 응답 Content-Type 검증 | JSON 형식인지 확인 |
+| `.andReturn()` | 최종 응답 결과 반환 | `MvcResult` 객체 반환 |
+
+**MvcResult**: 
+- HTTP 응답의 모든 정보를 담은 객체
+- `HttpServletResponse`의 Mock 버전
+
+---
+
+**5단계: 응답 결과 분석 (JSON → 객체)**
+
+```java
+List<MemberResponse> memberResponses = objectMapper.readValue(
+        mvcResult.getResponse().getContentAsString(),
+        new TypeReference<List<MemberResponse>>() {}
+);
+```
+
+**설명**:
+- **역직렬화(Deserialization)**: JSON 문자열 → Java 객체
+- `getContentAsString()`: HTTP 응답 본문을 JSON 문자열로 가져옴
+- `readValue()`: JSON 문자열을 `List<MemberResponse>` 객체로 변환
+
+**TypeReference의 역할**:
+- Java의 제네릭 타입 정보(`List<MemberResponse>`)를 유지한 채 변환
+- 단순히 `List.class`만 사용하면 제네릭 정보가 소실됨
+
+---
+
+**6단계: 최종 검증 (AssertJ)**
+
+```java
+assertThat(memberResponses.size()).isEqualTo(4);
+assertThat(memberResponses.get(0).getId()).isNotZero();
+assertThat(memberResponses.get(0).getName()).isEqualTo("김우현");
+```
+
+**검증 내용**:
+- ✅ 4명의 회원이 모두 생성되었는지
+- ✅ ID가 자동 생성되었는지 (0이 아님)
+- ✅ 첫 번째 회원의 이름이 올바른지
+
+---
+
+#### MockMvc 테스트의 전체 흐름 요약
+
+```
+1. Java 객체 준비 (List<MemberRequest>)
+    ↓
+2. 객체 → JSON 변환 (ObjectMapper.writeValueAsString)
+    ↓
+3. 가상 HTTP 요청 생성 (RequestBuilder)
+    ├─ POST /api/members
+    ├─ Content-Type: application/json
+    ├─ Accept: application/json
+    └─ Body: JSON 문자열
+    ↓
+4. MockMvc로 요청 실행
+    → Controller → Service → Repository → DB
+    ↓
+5. 응답 검증
+    ├─ 상태 코드: 2xx
+    └─ Content-Type: application/json
+    ↓
+6. 응답 본문 추출 (JSON 문자열)
+    ↓
+7. JSON → Java 객체 변환 (ObjectMapper.readValue)
+    ↓
+8. AssertJ로 최종 검증
+```
+
+**핵심**: 
+- 실제 서버 없이 전체 통합 테스트 가능
+- 매우 빠르고 자동화 가능
+- CI/CD 파이프라인에 통합 용이
+
+---
+
+### 4.3.8 Service단위 테스트 (Mockito)
+
+#### 단위 테스트의 개념
+
+**단위 테스트 (Unit Test)**: 각 컴포넌트를 **독립적으로** 검증하는 테스트
+
+**핵심 원칙**:
+- 테스트 대상(SUT: System Under Test)만 실제 객체 사용
+- 의존하는 다른 컴포넌트는 **Mock 객체**로 대체
+- 외부 요인(DB, 네트워크 등)에 영향받지 않음
+
+---
+
+#### 통합 테스트 vs 단위 테스트 비교
+
+**통합 테스트 (MemberServiceTests)**:
+
+```java
+@SpringBootTest
+public class MemberServiceTests {
+    @Autowired
+    private MemberService memberService;  // 실제 객체
+    
+    @Autowired
+    private MemberRepository memberRepository;  // 실제 객체 (DB 연결)
+}
+```
+
+**동작**:
+```
+memberService.findById(1L) 호출
+    ↓
+실제 MemberRepository 사용
+    ↓
+실제 DB(H2)에 접근
+    ↓
+결과 반환
+```
+
+**특징**:
+- ✅ 실제 환경과 유사
+- ✅ 전체 흐름 검증 가능
+- ⚠️ DB 상태에 의존
+- ⚠️ 느림
+- ⚠️ Service 로직만 검증하기 어려움
+
+---
+
+**단위 테스트 (MemberServiceUnitsTests)**:
+
+```java
+@SpringBootTest
+public class MemberServiceUnitsTests {
+    @Autowired
+    private MemberService memberService;  // 실제 객체 (테스트 대상)
+    
+    @MockitoBean
+    private MemberRepository memberRepository;  // Mock 객체 (가짜)
+}
+```
+
+**동작**:
+```
+memberService.findById(1L) 호출
+    ↓
+Mock MemberRepository 사용
+    ↓
+DB에 접근하지 않음
+    ↓
+미리 정의된 가짜 응답 반환
+```
+
+**특징**:
+- ✅ 매우 빠름 (DB 접근 없음)
+- ✅ Service 로직만 순수하게 검증
+- ✅ DB 상태에 독립적
+- ⚠️ 실제 DB 동작은 검증 안 됨
+
+---
+
+#### Mock 객체란?
+
+**Mock 객체**: 실제 객체를 흉내 내는 가짜 객체
+
+**역할**:
+
+| 항목 | 설명 |
+|-----|------|
+| **메서드 호출** | 실제 메서드를 호출하지 않음 |
+| **응답 제공** | 개발자가 미리 정의한 가짜 응답 반환 |
+| **의존성 격리** | 테스트 대상을 외부 의존성으로부터 격리 |
+| **빠른 실행** | DB, 네트워크 등 외부 자원 사용하지 않음 |
+
+**비유**:
+```
+실제 Repository = 진짜 은행 직원 (실제 계좌에서 돈을 꺼냄)
+Mock Repository = 연습용 모형 (가짜 돈을 꺼내는 척함)
+```
+
+---
+
+#### @MockitoBean 어노테이션
+
+**@MockitoBean**: Spring Context에 Mock 객체를 등록하는 어노테이션
+
+```java
+@SpringBootTest
+public class MemberServiceUnitsTests {
+    @Autowired
+    private MemberService memberService;
+    
+    @MockitoBean  // ← 핵심!
+    private MemberRepository memberRepository;
+}
+```
+
+**동작 원리**:
+
+```
+@SpringBootTest가 Spring Context 구동 시도
+    ↓
+MemberRepository 빈이 필요함
+    ↓
+@MockitoBean 발견
+    ↓
+실제 MemberRepository 대신 Mock 객체 생성
+    ↓
+Mock 객체를 Spring Context에 등록
+    ↓
+MemberService에 Mock 객체 주입
+```
+
+**핵심**: 
+- Spring이 실제 Repository를 만들지 않음
+- 대신 Mockito가 만든 가짜 객체를 주입
+- MemberService는 진짜인지 가짜인지 모르고 사용
+
+---
+
+#### MemberServiceUnitsTests 작성
+
+```java
+package com.example.restfulapiSample.service;
+
+import com.example.restfulapiSample.dto.MemberResponse;
+import com.example.restfulapiSample.model.Member;
+import com.example.restfulapiSample.repository.MemberRepository;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+
+import java.util.Optional;
+
+import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+import static org.mockito.Mockito.when;
+
+@SpringBootTest
+@DisplayName("단위 테스트")
+public class MemberServiceUnitsTests {
+
+    @Autowired
+    MemberService memberService;
+
+    @MockitoBean
+    MemberRepository memberRepository;
+
+    @Test
+    public void test() {
+        // Mock 객체의 동작 정의
+        when(memberRepository.findById(1L))
+                .thenReturn(
+                        Optional.ofNullable(
+                                Member.builder()
+                                        .id(1L)
+                                        .name("홍혜창")
+                                        .email("hyechang@spring.ac.kr")
+                                        .age(10)
+                                        .build()
+                        )
+                );
+
+        // 테스트 대상 메서드 호출
+        MemberResponse memberResponse = memberService.findById(1L);
+
+        // 검증
+        assertThat(memberResponse.getId()).isEqualTo(1L);
+        assertThat(memberResponse.getName()).isEqualTo("홍혜창");
+    }
+}
+```
+
+---
+
+#### Mockito의 when...thenReturn 패턴
+
+**기본 구조**:
+
+```java
+when(mockObject.method(arguments))
+    .thenReturn(returnValue);
+```
+
+**의미**:
+```
+when: "만약 이 메서드가 호출된다면..."
+thenReturn: "...이 값을 반환해라"
+```
+
+---
+
+**코드 분석**:
+
+```java
+when(memberRepository.findById(1L))
+    .thenReturn(
+        Optional.ofNullable(
+            Member.builder()
+                .id(1L)
+                .name("홍혜창")
+                .email("hyechang@spring.ac.kr")
+                .age(10)
+                .build()
+        )
+    );
+```
+
+**단계별 해석**:
+
+| 단계 | 코드 | 설명 |
+|-----|------|------|
+| **1. 메서드 호출 조건** | `when(memberRepository.findById(1L))` | "만약 `findById(1L)`이 호출된다면..." |
+| **2. 반환 값 정의** | `.thenReturn(Optional.ofNullable(...))` | "...이 Optional 객체를 반환해라" |
+| **3. Member 객체 생성** | `Member.builder()...` | 반환할 가짜 회원 데이터 |
+
+---
+
+**실제 동작 흐름**:
+
+```
+1. memberService.findById(1L) 호출
+    ↓
+2. Service 내부에서 memberRepository.findById(1L) 호출
+    ↓
+3. Mockito가 when...thenReturn 규칙 발견
+    ↓
+4. 실제 DB에 접근하지 않고 미리 정의된 Member 객체 반환
+    ↓
+5. Service가 반환받은 Member를 MemberResponse로 변환
+    ↓
+6. 테스트 코드가 MemberResponse 검증
+```
+
+**핵심**: 
+- DB에 실제로 "홍혜창" 데이터가 없어도 됨
+- Mockito가 가짜 데이터를 제공
+- Service의 "데이터를 받아서 DTO로 변환하는 로직"만 순수하게 검증
+
+---
+
+#### Optional.ofNullable()을 사용하는 이유
+
+**의문**:
+```java
+// 왜 Optional.ofNullable()로 감싸야 하나요?
+.thenReturn(
+    Optional.ofNullable(
+        Member.builder()...
+    )
+);
+```
+
+**이유**: JpaRepository의 메서드 시그니처 때문
+
+```java
+public interface JpaRepository<T, ID> {
+    Optional<T> findById(ID id);  // ← 반환 타입이 Optional!
+}
+```
+
+**설명**:
+
+| 항목 | 내용 |
+|-----|------|
+| **실제 메서드 시그니처** | `Optional<Member> findById(Long id)` |
+| **반환 타입** | `Optional<Member>` (Member가 아님!) |
+| **Mockito 요구사항** | 실제 메서드의 반환 타입과 정확히 일치해야 함 |
+| **Optional의 역할** | "결과가 있을 수도 있고(값 존재), 없을 수도 있다(null)"는 것을 명확히 표현 |
+
+---
+
+**Optional 생성 방법**:
+
+| 메서드 | 사용 시점 | 예시 |
+|-------|---------|------|
+| **Optional.of(value)** | 값이 절대 null이 아닐 때 | `Optional.of(member)` |
+| **Optional.ofNullable(value)** | 값이 null일 수도 있을 때 | `Optional.ofNullable(member)` |
+| **Optional.empty()** | 값이 없음을 표현할 때 | `Optional.empty()` |
+
+**현재 코드**:
+```java
+Optional.ofNullable(Member.builder()...)
+```
+
+- Member 객체를 생성하고 있으므로 null이 아님
+- 하지만 `Optional.ofNullable()`을 사용하는 것이 안전
+- JPA 메서드의 반환 타입(`Optional<Member>`)과 정확히 일치
+
+---
+
+**회원을 찾지 못한 경우를 테스트하려면**:
+
+```java
+@Test
+public void testMemberNotFound() {
+    // 회원을 찾지 못한 경우
+    when(memberRepository.findById(999L))
+            .thenReturn(Optional.empty());  // ← 빈 Optional 반환
+    
+    // NotFoundException 발생 예상
+    assertThrows(NotFoundException.class, () -> {
+        memberService.findById(999L);
+    });
+}
+```
+
+---
+
+#### 단위 테스트의 장점
+
+| 장점 | 설명 |
+|-----|------|
+| **속도** | DB 접근 없이 메모리에서만 동작하여 매우 빠름 |
+| **독립성** | 외부 의존성(DB, 네트워크)에 영향받지 않음 |
+| **순수성** | 테스트 대상의 로직만 검증 가능 |
+| **안정성** | DB 상태, 네트워크 상태에 관계없이 항상 동일한 결과 |
+| **명확성** | 테스트 실패 시 원인이 명확 (Service 로직 자체의 문제) |
+
+---
+
+#### 통합 테스트 vs 단위 테스트 선택 가이드
+
+**통합 테스트를 사용해야 할 때**:
+
+| 상황 | 이유 |
+|-----|------|
+| **전체 흐름 검증** | Controller부터 DB까지 모든 계층이 정상 작동하는지 확인 |
+| **실제 DB 동작 검증** | 쿼리 메서드, JPA 설정 등이 실제로 작동하는지 확인 |
+| **통합 문제 발견** | 계층 간 연결, 트랜잭션, 데이터 변환 등의 문제 발견 |
+
+---
+
+**단위 테스트를 사용해야 할 때**:
+
+| 상황 | 이유 |
+|-----|------|
+| **순수 로직 검증** | Service의 비즈니스 로직만 검증하고 싶을 때 |
+| **빠른 피드백** | 수백 개의 테스트를 빠르게 실행하고 싶을 때 |
+| **외부 의존성 제거** | DB가 없거나 네트워크가 불안정한 환경에서 테스트 |
+| **복잡한 시나리오** | 특정 예외 상황이나 엣지 케이스를 쉽게 재현 |
+
+---
+
+**권장 전략**:
+
+```
+단위 테스트 (많이)
+    ↓
+각 계층을 독립적으로 빠르게 검증
+    +
+통합 테스트 (적절히)
+    ↓
+전체 흐름이 정상 작동하는지 확인
+```
+
+**비유**:
+- **단위 테스트** = 자동차의 각 부품(엔진, 브레이크)을 따로따로 검사
+- **통합 테스트** = 완성된 자동차를 실제로 운전해보는 것
+
+---
+
+### 4.3.9 핵심 정리
+
+#### 테스트 환경 구성
+
+| 항목 | 설명 |
+|-----|------|
+| **위치** | `src/test/java` |
+| **패키지** | `main`과 동일한 구조 |
+| **명명 규칙** | 클래스명 + `Tests` |
+| **필수 의존성** | `spring-boot-starter-test` |
+
+---
+
+#### 주요 어노테이션
+
+| 어노테이션 | 역할 | 사용 위치 |
+|----------|------|----------|
+| **@SpringBootTest** | 전체 Spring Context 로딩 | 클래스 |
+| **@Autowired** | 의존성 주입 (테스트 환경 권장) | 필드 |
+| **@MockitoBean** | Mock 객체 주입 | 필드 |
+| **@AutoConfigureMockMvc** | MockMvc 자동 설정 | 클래스 |
+| **@Test** | 테스트 메서드 지정 | 메서드 |
+| **@DisplayName** | 테스트 이름 지정 | 클래스/메서드 |
+| **@BeforeEach** | 각 테스트 전 실행 | 메서드 |
+| **@AfterEach** | 각 테스트 후 실행 | 메서드 |
+| **@Disabled** | 테스트 비활성화 | 메서드 |
+| **@RepeatedTest** | 테스트 반복 실행 | 메서드 |
+
+---
+
+#### 테스트 유형 비교
+
+| 구분 | 통합 테스트 | 단위 테스트 |
+|-----|-----------|-----------|
+| **대상** | Controller, Service, Repository | Service만 |
+| **의존성** | 실제 객체 | Mock 객체 |
+| **DB 연결** | ✅ 사용 | ❌ 사용 안 함 |
+| **속도** | 느림 | 매우 빠름 |
+| **검증 범위** | 전체 흐름 | 순수 로직 |
+| **사용 시기** | 전체 통합 확인 | 개별 로직 검증 |
+
+---
+
+#### 주요 검증 도구
+
+**AssertJ (assertThat)**:
+
+```java
+assertThat(actual).isEqualTo(expected);
+assertThat(actual).isNotNull();
+assertThat(list).hasSize(3);
+```
+
+**Mockito (when...thenReturn)**:
+
+```java
+when(mockRepository.findById(1L))
+    .thenReturn(Optional.of(member));
+```
+
+**MockMvc (perform)**:
+
+```java
+mockMvc.perform(requestBuilder)
+    .andExpect(status().isOk())
+    .andExpect(content().contentType(MediaType.APPLICATION_JSON));
+```
+
+---
+
 
 
 
