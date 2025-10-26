@@ -6335,6 +6335,1113 @@ mockMvc.perform(requestBuilder)
 ```
 
 ---
+## 4.4 웹 필터
+
+### 4.4.1 필터(Filter)란?
+
+#### 필터의 개념
+
+**필터(Filter)**: 클라이언트의 HTTP 요청이 서블릿/컨트롤러에 도달하기 전이나 응답이 클라이언트에게 가기 전에 **공통적인 작업을 수행**할 수 있도록 요청과 응답을 **가로채는(Intercept)** 객체
+
+**핵심**: 필터는 서블릿 컨테이너(톰캣)가 관리하는 웹 컴포넌트!
+
+---
+
+#### 서블릿 컨테이너의 역할 확장
+
+**이전 이해**:
+```
+톰캣(서블릿 컨테이너) = 서블릿 객체의 생명주기 관리
+```
+
+**확장된 이해**:
+```
+톰캣(서블릿 컨테이너) = 서블릿 객체 + 필터 객체의 생명주기 관리
+```
+
+**서블릿 컨테이너가 관리하는 웹 컴포넌트**:
+
+| 컴포넌트 | 역할 | 관리 내용 |
+|---------|------|----------|
+| **서블릿 객체** | 실제 비즈니스 로직 처리 (Controller) | 생성, 초기화, 서비스, 소멸 |
+| **필터 객체** | 요청/응답 가로채기 및 전처리/후처리 | 생성, 소멸, 필터 체인 구성 및 관리 |
+
+**핵심**: 톰캣은 서블릿뿐만 아니라 필터도 관리하며, 이들이 협력하여 요청을 처리할 수 있도록 환경을 제공!
+
+---
+
+#### 필터가 없을 때와 있을 때의 흐름 비교
+
+**필터가 없을 때**:
+
+```
+클라이언트 (HTTP 요청)
+    ↓
+톰캣 (서블릿 컨테이너)
+    ↓
+서블릿/컨트롤러 (비즈니스 로직)
+    ↓
+톰캣
+    ↓
+클라이언트 (HTTP 응답)
+```
+
+---
+
+**필터가 있을 때**:
+
+```
+클라이언트 (HTTP 요청)
+    ↓
+톰캣 (서블릿 컨테이너)
+    ↓
+필터 1 (전처리)
+    ↓
+필터 2 (전처리)
+    ↓
+서블릿/컨트롤러 (비즈니스 로직)
+    ↓
+필터 2 (후처리)
+    ↓
+필터 1 (후처리)
+    ↓
+톰캣
+    ↓
+클라이언트 (HTTP 응답)
+```
+
+**핵심**: 필터는 서블릿/컨트롤러의 앞과 뒤에서 공통 작업을 수행!
+
+---
+
+### 4.4.2 필터의 주요 사용 목적
+
+필터는 웹 애플리케이션의 **공통 관심사(Cross-Cutting Concerns)** 를 서블릿/컨트롤러의 핵심 비즈니스 로직과 분리하여 관리할 때 사용됩니다.
+
+#### 1. 보안 및 인증/인가 🛡️
+
+| 목적 | 설명 | 예시 |
+|-----|------|------|
+| **로그인 확인** | 사용자가 로그인되었는지 체크 | 세션이나 토큰 검증 |
+| **권한 확인** | 특정 URL에 접근할 권한이 있는지 체크 | 관리자 페이지 접근 제어 |
+| **차단** | 인증/인가 실패 시 요청을 컨트롤러에 전달하지 않고 필터에서 차단 | 401 Unauthorized, 403 Forbidden 반환 |
+
+---
+
+#### 2. 로깅 및 감사 📜
+
+| 목적 | 설명 |
+|-----|------|
+| **요청/응답 로깅** | 요청 시간, IP, URL, 응답 시간 등 모든 웹 요청 정보 자동 기록 |
+| **성능 측정** | 요청 처리 소요 시간 측정으로 성능 병목 지점 파악 |
+
+---
+
+#### 3. 데이터 변환 및 조작 🛠️
+
+| 목적 | 설명 |
+|-----|------|
+| **문자 인코딩 설정** | 한글 깨짐 방지를 위한 `UTF-8` 인코딩 설정 |
+| **데이터 압축** | 응답 데이터를 GZIP으로 압축하여 전송 속도 향상 |
+| **XSS 방어** | 요청 파라미터의 악성 스크립트 제거 또는 변환 |
+
+---
+
+#### 4. 기타 웹 환경 설정 ⚙️
+
+| 목적 | 설명 |
+|-----|------|
+| **캐시 제어** | 응답 헤더에 캐시 관련 설정 추가 |
+| **CORS 설정** | 다른 도메인에서의 요청 허용을 위한 헤더 추가 |
+
+---
+
+### 4.4.3 LogFilter 구현 (요청/응답 로깅)
+
+#### LogFilter.java 작성
+
+```java
+package com.example.restfulapiSample.filter;
+
+import jakarta.servlet.*;
+import jakarta.servlet.annotation.WebFilter;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
+
+import java.io.IOException;
+
+@WebFilter(urlPatterns = "/api/*")  
+@Slf4j
+public class LogFilter implements Filter {
+
+    @Override
+    public void doFilter(ServletRequest servletRequest, 
+                        ServletResponse servletResponse, 
+                        FilterChain filterChain) throws IOException, ServletException {
+        
+        // 1. 요청 전처리 (Inbound Request)
+        long startTime = System.currentTimeMillis();
+        log.info("time start - {}", ((HttpServletRequest)servletRequest).getRequestURI());
+
+        // 2. 다음 필터 또는 서블릿으로 요청 전달
+        filterChain.doFilter(servletRequest, servletResponse);
+
+        // 3. 응답 후처리 (Outbound Response)
+        long endTime = System.currentTimeMillis();
+        log.info("time end - {}", ((HttpServletRequest)servletRequest).getRequestURI());
+        log.info("total time : {} , status : {}", 
+                (endTime - startTime), 
+                ((HttpServletResponse)servletResponse).getStatus());
+    }
+}
+```
+
+---
+
+#### Filter 인터페이스와 주요 메서드
+
+**Filter 인터페이스**: 서블릿 표준 API가 제공하는 필터 인터페이스
+
+```java
+public interface Filter {
+    void doFilter(ServletRequest request, 
+                  ServletResponse response, 
+                  FilterChain chain) 
+            throws IOException, ServletException;
+}
+```
+
+---
+
+#### doFilter() 메서드의 매개변수
+
+| 매개변수 | 타입 | 의미 | 실제 전달되는 객체 |
+|---------|------|------|------------------|
+| **servletRequest** | `ServletRequest` | 클라이언트의 HTTP 요청 정보 (헤더, 파라미터 등) | `HttpServletRequest` |
+| **servletResponse** | `ServletResponse` | 서버가 클라이언트에게 보낼 응답 정보 | `HttpServletResponse` |
+| **filterChain** | `FilterChain` | 현재 필터 다음으로 실행될 나머지 단계에 대한 정보 | 톰캣 내부 객체 |
+
+---
+
+#### FilterChain의 역할 (매우 중요!)
+
+**FilterChain**: 해당 요청 URL에 적용되는 **모든 필터의 목록**과 **최종 목적지(컨트롤러)** 정보를 담고 있는 객체
+
+**핵심 개념**:
+```
+filterChain.doFilter(request, response)
+= "나의 전처리 작업은 끝났으니, 이제 다음 주자에게 요청을 넘겨주세요"
+```
+
+**FilterChain의 내부 구조**:
+
+```
+FilterChain {
+    필터 목록: [LogFilter, AccessKeyFilter]
+    최종 목적지: MemberController
+    현재 위치: LogFilter
+}
+```
+
+---
+
+#### FilterChain의 작동 방식
+
+**시나리오**: `/api/members` 요청이 들어왔을 때
+
+```
+1. 톰캣이 URL 분석
+    ↓
+2. 적용될 필터 확인: LogFilter, AccessKeyFilter
+    ↓
+3. FilterChain 객체 생성
+    - 필터 목록: [LogFilter, AccessKeyFilter]
+    - 최종 목적지: MemberController
+    ↓
+4. LogFilter.doFilter() 호출
+    - 전처리: 시작 시간 기록
+    - filterChain.doFilter() 호출 ← "다음으로 넘김"
+    ↓
+5. FilterChain이 다음 필터 확인
+    ↓
+6. AccessKeyFilter.doFilter() 호출
+    - 전처리: 인증 확인
+    - filterChain.doFilter() 호출 ← "다음으로 넘김"
+    ↓
+7. FilterChain이 더 이상 필터 없음 확인
+    ↓
+8. 최종 목적지 (MemberController) 호출
+    - 비즈니스 로직 실행
+    - 응답 생성
+    ↓
+9. 응답이 역순으로 복귀
+    ↓
+10. AccessKeyFilter의 filterChain.doFilter() 이후 코드 실행
+    - 후처리: (있다면) 응답 데이터 변환
+    ↓
+11. LogFilter의 filterChain.doFilter() 이후 코드 실행
+    - 후처리: 종료 시간 기록 및 로깅
+    ↓
+12. 톰캣을 거쳐 클라이언트에게 응답
+```
+
+**핵심**: 
+- `filterChain.doFilter()` 호출 **전**: 요청 전처리
+- `filterChain.doFilter()` 호출 **후**: 응답 후처리
+
+---
+
+#### 필터의 차단 기능
+
+**필터의 강력한 기능**: `filterChain.doFilter()`를 호출하지 않으면 요청이 **차단**됨!
+
+**통과 시키는 경우**:
+
+```java
+@Override
+public void doFilter(...) {
+    // 전처리
+    log.info("요청 시작");
+    
+    // ✅ 다음 단계로 전달 (통과)
+    filterChain.doFilter(request, response);
+    
+    // 후처리
+    log.info("요청 종료");
+}
+```
+
+---
+
+**차단하는 경우**:
+
+```java
+@Override
+public void doFilter(...) {
+    // 전처리: 인증 확인
+    if (!isAuthenticated(request)) {
+        // ❌ filterChain.doFilter()를 호출하지 않음 (차단)
+        response.setStatus(HttpStatus.UNAUTHORIZED.value());
+        return;  // 여기서 메서드 종료
+    }
+    
+    // 인증 성공 시에만 다음 단계로 전달
+    filterChain.doFilter(request, response);
+}
+```
+
+**차단 흐름**:
+
+```
+클라이언트 요청
+    ↓
+톰캣
+    ↓
+필터 (인증 실패 감지)
+    ↓
+filterChain.doFilter() 호출 안 함 ❌
+    ↓
+401 Unauthorized 응답 반환
+    ↓
+컨트롤러에 도달하지 못함 (차단 성공)
+```
+
+**핵심**: 필터는 **방화벽**이나 **검문소** 역할을 수행!
+
+---
+
+#### LogFilter 코드 분석
+
+**1단계: 요청 전처리**
+
+```java
+long startTime = System.currentTimeMillis();
+log.info("time start - {}", ((HttpServletRequest)servletRequest).getRequestURI());
+```
+
+**동작**:
+- 요청이 들어온 시작 시간 기록
+- 요청 URI 로깅
+
+**타입 캐스팅 이유**:
+- `servletRequest`는 `ServletRequest` 타입 (일반적인 요청)
+- `getRequestURI()` 메서드는 `HttpServletRequest`에만 존재
+- HTTP 관련 메서드를 사용하려면 캐스팅 필요
+
+---
+
+**2단계: 다음 단계로 전달**
+
+```java
+filterChain.doFilter(servletRequest, servletResponse);
+```
+
+**동작**:
+- FilterChain에게 "다음 필터 또는 컨트롤러를 실행해주세요" 요청
+- 이 메서드가 반환될 때까지 대기 (블로킹)
+- 다음 모든 처리가 완료된 후에야 이 줄 다음 코드 실행
+
+---
+
+**3단계: 응답 후처리**
+
+```java
+long endTime = System.currentTimeMillis();
+log.info("time end - {}", ((HttpServletRequest)servletRequest).getRequestURI());
+log.info("total time : {} , status : {}", 
+        (endTime - startTime), 
+        ((HttpServletResponse)servletResponse).getStatus());
+```
+
+**동작**:
+- 요청 처리가 완료된 시간 기록
+- 총 소요 시간 계산 (endTime - startTime)
+- HTTP 응답 상태 코드 로깅
+
+---
+
+#### @WebFilter 어노테이션
+
+**@WebFilter**: 서블릿 표준 API가 제공하는 필터 등록 어노테이션
+
+```java
+@WebFilter(urlPatterns = "/api/*")
+public class LogFilter implements Filter {
+    // ...
+}
+```
+
+**속성**:
+
+| 속성 | 설명 | 예시 |
+|-----|------|------|
+| **urlPatterns** | 필터를 적용할 URL 패턴 | `"/api/*"` - `/api/`로 시작하는 모든 요청 |
+| **filterName** | 필터 이름 | `"logFilter"` |
+| **servletNames** | 특정 서블릿에만 적용 | `{"memberServlet"}` |
+
+---
+
+**@ServletComponentScan 필요**:
+
+`@WebFilter`를 사용하려면 메인 애플리케이션 클래스에 `@ServletComponentScan` 추가 필요!
+
+```java
+@SpringBootApplication
+@EnableJpaAuditing
+@ServletComponentScan  // ← @WebFilter 인식을 위해 필요
+public class RestfulapiSampleApplication {
+    public static void main(String[] args) {
+        SpringApplication.run(RestfulapiSampleApplication.class, args);
+    }
+}
+```
+
+**역할**: 서블릿 컨테이너(톰캣)가 `@WebFilter`, `@WebServlet`, `@WebListener` 어노테이션을 검색하고 등록할 수 있도록 스캔 활성화
+
+---
+
+#### LogFilter 실행 결과
+
+**요청**:
+```
+GET http://localhost:8080/api/members
+Authorization: Bearer hanbit-access-key
+```
+
+**로그 출력**:
+```
+INFO --- [nio-8080-exec-1] c.e.restfulapiSample.filter.LogFilter : time start - /api/members
+(Hibernate SQL 실행...)
+INFO --- [nio-8080-exec-1] c.e.restfulapiSample.filter.LogFilter : time end - /api/members
+INFO --- [nio-8080-exec-1] c.e.restfulapiSample.filter.LogFilter : total time : 362 , status : 200
+```
+
+**분석**:
+- 요청 시작과 종료 시간이 로깅됨
+- 총 소요 시간: 362ms
+- 응답 상태 코드: 200 OK
+
+---
+
+### 4.4.4 AccessKeyFilter 구현 (인증)
+
+#### 인증 필터의 목적
+
+**목표**: 허가받은 클라이언트만 API를 사용할 수 있도록 **인증(Authentication)** 수행
+
+**동작 방식**:
+- 클라이언트가 HTTP 헤더에 인증 키를 포함하여 요청
+- 필터가 인증 키를 검증
+- 유효한 키면 통과, 유효하지 않으면 차단
+
+---
+
+#### AccessKeyFilter.java 작성
+
+```java
+package com.example.restfulapiSample.filter;
+
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.annotation.WebFilter;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+import java.io.IOException;
+
+@WebFilter  
+@Slf4j
+public class AccessKeyFilter extends OncePerRequestFilter {
+
+    @Override
+    protected void doFilterInternal(HttpServletRequest request, 
+                                   HttpServletResponse response, 
+                                   FilterChain filterChain) 
+            throws ServletException, IOException {
+        
+        log.info("인증 검사 시작");
+
+        // 1. HTTP 헤더에서 인증 키 추출
+        String accessKey = request.getHeader("Authorization");
+        
+        // 2. Bearer 토큰 형식 확인 및 키 추출
+        if (accessKey != null && accessKey.startsWith("Bearer")) {
+            accessKey = accessKey.replace("Bearer", "").trim();
+            
+            // 3. 인증 키 검증
+            if (accessKey.equals("hanbit-access-key")) {
+                // ✅ 인증 성공: 다음 단계로 전달
+                filterChain.doFilter(request, response);
+                log.info("인증 완료 및 정상 호출 후 종료");
+                return;
+            }
+        }
+
+        // ❌ 인증 실패: 401 Unauthorized 반환
+        response.setStatus(HttpStatus.UNAUTHORIZED.value());
+        log.info("인증 실패 후 종료");
+    }
+}
+```
+
+---
+
+#### OncePerRequestFilter vs Filter
+
+**Filter 인터페이스의 문제점**:
+
+```java
+public class MyFilter implements Filter {
+    @Override
+    public void doFilter(...) {
+        // 인증 로직
+        filterChain.doFilter(...);
+    }
+}
+```
+
+**문제 상황**:
+
+```
+1. /api/a 요청 도착
+    ↓
+2. MyFilter 실행 (1회) - 인증 완료
+    ↓
+3. 컨트롤러 내부에서 /api/b로 포워딩(Forwarding) 발생
+    ↓
+4. MyFilter 재실행 (2회) ⚠️ - 불필요한 중복 검증!
+```
+
+**포워딩(Forwarding)**:
+- 서블릿 컨테이너 내부에서 현재 요청을 유지한 채 다른 서블릿/컨트롤러로 제어를 넘기는 방식
+- 클라이언트는 이 과정을 알 수 없음
+- 하지만 톰캣 입장에서는 새로운 요청처럼 처리되어 필터가 다시 실행됨
+
+---
+
+**OncePerRequestFilter의 해결책**:
+
+```java
+public class MyFilter extends OncePerRequestFilter {
+    @Override
+    protected void doFilterInternal(...) {
+        // 인증 로직
+        filterChain.doFilter(...);
+    }
+}
+```
+
+**동작 방식**:
+
+```
+1. /api/a 요청 도착
+    ↓
+2. OncePerRequestFilter 실행
+    - 요청 객체에 "실행 완료 플래그" 표시
+    - 인증 로직 수행 (doFilterInternal 실행)
+    ↓
+3. 컨트롤러 내부에서 /api/b로 포워딩 발생
+    ↓
+4. OncePerRequestFilter 재호출
+    - "실행 완료 플래그" 확인
+    - doFilterInternal 실행하지 않고 바로 filterChain.doFilter() 호출
+    ↓
+결과: 인증 로직은 1회만 실행됨 ✅
+```
+
+---
+
+**비교 정리**:
+
+| 구분 | implements Filter | extends OncePerRequestFilter |
+|-----|------------------|----------------------------|
+| **메서드** | `doFilter()` | `doFilterInternal()` |
+| **중복 실행** | ⚠️ 포워딩 시 중복 실행 가능 | ✅ 요청당 1회만 실행 보장 |
+| **인증/인가 사용** | ❌ 비권장 | ✅ 권장 (표준) |
+| **포워딩 영향** | 받음 | 받지 않음 |
+
+**핵심**: 
+- **인증/인가 로직**은 한 번만 수행되어야 하므로 `OncePerRequestFilter` 사용
+- "인증은 이미 완료했다!"는 것을 명확히 하여 불필요한 중복 실행 방지
+
+---
+
+#### AccessKeyFilter 코드 분석
+
+**1단계: 인증 키 추출**
+
+```java
+String accessKey = request.getHeader("Authorization");
+```
+
+**동작**:
+- HTTP 헤더에서 `Authorization` 헤더 값 추출
+- 클라이언트는 다음 형식으로 헤더를 보냄:
+  ```
+  Authorization: Bearer hanbit-access-key
+  ```
+
+---
+
+**2단계: Bearer 토큰 형식 확인**
+
+```java
+if (accessKey != null && accessKey.startsWith("Bearer")) {
+    accessKey = accessKey.replace("Bearer", "").trim();
+    // ...
+}
+```
+
+**Bearer 토큰**:
+- 토큰 기반 인증에서 가장 흔하게 사용되는 인증 스키마(Token Type)
+- "이 토큰을 소유한 사람이 인증되었다"는 의미
+
+**전처리**:
+- `accessKey.startsWith("Bearer")`: `Bearer`로 시작하는지 확인
+- `.replace("Bearer", "")`: `Bearer` 접두사 제거
+- `.trim()`: 앞뒤 공백 제거
+- 결과: `"hanbit-access-key"` (순수 키 값만 추출)
+
+---
+
+**3단계: 인증 키 검증**
+
+```java
+if (accessKey.equals("hanbit-access-key")) {
+    filterChain.doFilter(request, response);
+    log.info("인증 완료 및 정상 호출 후 종료");
+    return;
+}
+```
+
+**인증 성공 시**:
+- ✅ `filterChain.doFilter()` 호출: 다음 필터 또는 컨트롤러로 요청 전달
+- 로그 출력: "인증 완료 및 정상 호출 후 종료"
+- `return`: 메서드 종료
+
+---
+
+**4단계: 인증 실패 처리**
+
+```java
+response.setStatus(HttpStatus.UNAUTHORIZED.value());
+log.info("인증 실패 후 종료");
+```
+
+**인증 실패 시**:
+- ❌ `filterChain.doFilter()` 호출하지 않음 (차단!)
+- HTTP 상태 코드 설정: `401 Unauthorized`
+- 로그 출력: "인증 실패 후 종료"
+- 요청이 컨트롤러에 도달하지 못하고 필터에서 차단됨
+
+---
+
+#### 실제 테스트 결과
+
+**테스트 1: 인증 없이 요청**
+
+**요청**:
+```
+GET http://localhost:8080/api/members
+(Authorization 헤더 없음)
+```
+
+**로그**:
+```
+INFO --- c.e.r.filter.AccessKeyFilter : 인증 검사 시작
+INFO --- c.e.r.filter.AccessKeyFilter : 인증 실패 후 종료
+```
+
+**응답**:
+```
+401 Unauthorized
+```
+
+**결과**: 인증 실패로 차단됨 ✅
+
+---
+
+**테스트 2: 올바른 인증 키로 요청**
+
+**요청**:
+```
+GET http://localhost:8080/api/members
+Authorization: Bearer hanbit-access-key
+```
+
+**로그**:
+```
+INFO --- c.e.r.filter.AccessKeyFilter : 인증 검사 시작
+INFO --- c.e.r.filter.AccessKeyFilter : 인증 완료 및 정상 호출 후 종료
+(비즈니스 로직 실행...)
+```
+
+**응답**:
+```
+200 OK
+[회원 목록 JSON]
+```
+
+**결과**: 인증 성공, 정상적으로 API 호출됨 ✅
+
+---
+
+**테스트 3: 잘못된 인증 키로 요청**
+
+**요청**:
+```
+GET http://localhost:8080/api/members
+Authorization: Bearer wrong-key
+```
+
+**로그**:
+```
+INFO --- c.e.r.filter.AccessKeyFilter : 인증 검사 시작
+INFO --- c.e.r.filter.AccessKeyFilter : 인증 실패 후 종료
+```
+
+**응답**:
+```
+401 Unauthorized
+```
+
+**결과**: 인증 실패로 차단됨 ✅
+
+---
+
+### 4.4.5 필터 순서 제어 문제
+
+#### 문제 상황: 필터 실행 순서가 예측 불가능
+
+**@WebFilter 사용 시 문제**:
+
+```java
+@WebFilter(urlPatterns = "/api/*")
+public class AccessKeyFilter extends OncePerRequestFilter {
+    // 인증 필터
+}
+
+@WebFilter(urlPatterns = "/api/*")
+public class LogFilter implements Filter {
+    // 로깅 필터
+}
+```
+
+**문제점**:
+- 필터의 실행 순서가 **알파벳 순서**로 결정됨
+- `AccessKeyFilter` → `LogFilter` 순으로 실행됨
+- 개발자가 원하는 순서를 지정할 수 없음
+
+---
+
+**실제 실행 결과 (알파벳 순)**:
+
+**로그**:
+```
+INFO --- c.e.r.filter.AccessKeyFilter : 인증 검사 시작
+INFO --- c.e.restfulapiSample.filter.LogFilter : time start - /api/members
+(비즈니스 로직 실행...)
+INFO --- c.e.restfulapiSample.filter.LogFilter : time end - /api/members
+INFO --- c.e.restfulapiSample.filter.LogFilter : total time : 326 , status : 200
+INFO --- c.e.r.filter.AccessKeyFilter : 인증 완료 및 정상 호출 후 종료
+```
+
+**분석**:
+- `AccessKeyFilter`가 먼저 실행됨 (알파벳 순)
+- 하지만 로그 메시지 순서를 보면 혼란스러움
+- "time start"가 "인증 검사 시작" 다음에 나옴
+
+---
+
+**원하는 순서**:
+
+```
+1. LogFilter (로깅 시작)
+2. AccessKeyFilter (인증 검사)
+3. 컨트롤러
+4. AccessKeyFilter (인증 후처리)
+5. LogFilter (로깅 종료, 총 소요 시간 측정)
+```
+
+**이유**: 
+- LogFilter가 전체 요청의 시작과 끝을 감싸야 정확한 시간 측정 가능
+- 인증은 로깅 다음에 수행되는 것이 논리적
+
+---
+
+### 4.4.6 FilterConfig를 통한 순서 제어
+
+#### 해결 방법: FilterRegistrationBean사용
+
+**@WebFilter의 한계**:
+
+| 항목 | 설명 |
+|-----|------|
+| **등록 주체** | 서블릿 컨테이너(톰캣) |
+| **관리 방식** | 서블릿 컴포넌트로 등록 (Spring Bean 아님) |
+| **순서 제어** | ❌ 불가능 (알파벳 순으로 자동 결정) |
+| **의존성 주입** | ❌ `@Autowired` 사용 불가 |
+
+---
+
+**FilterRegistrationBean의 장점**:
+
+| 항목 | 설명 |
+|-----|------|
+| **등록 주체** | Spring 컨테이너 |
+| **관리 방식** | Spring Bean으로 등록 |
+| **순서 제어** | ✅ `setOrder()`로 명시적 순서 지정 가능 |
+| **의존성 주입** | ✅ `@Autowired` 사용 가능 |
+
+**핵심**: Spring이 필터를 빈으로 관리하면서 서블릿 컨테이너에 등록해주는 중개 역할!
+
+---
+
+#### FilterConfig.java 작성
+
+**1단계: @WebFilter 어노테이션 제거**
+
+```java
+// @WebFilter(urlPatterns = "/api/*")  // ← 제거!
+@Slf4j
+public class LogFilter implements Filter {
+    // ...
+}
+
+// @WebFilter  // ← 제거!
+@Slf4j
+public class AccessKeyFilter extends OncePerRequestFilter {
+    // ...
+}
+```
+
+**주의**: 
+- `@WebFilter`를 제거하지 않으면 중복 등록됨
+- `@ServletComponentScan`도 제거 (더 이상 필요 없음)
+
+---
+
+**2단계: FilterConfig 클래스 작성**
+
+```java
+package com.example.restfulapiSample.config;
+
+import com.example.restfulapiSample.filter.AccessKeyFilter;
+import com.example.restfulapiSample.filter.LogFilter;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+@Configuration
+public class FilterConfig {
+
+    @Bean
+    public FilterRegistrationBean<LogFilter> logFilter() {
+        FilterRegistrationBean<LogFilter> bean = new FilterRegistrationBean<>();
+        bean.setFilter(new LogFilter());
+        bean.addUrlPatterns("/api/*");
+        bean.setOrder(1);  // ← 순서 지정: 1번 (가장 먼저)
+        bean.setName("LogFilter");
+        return bean;
+    }
+
+    @Bean
+    public FilterRegistrationBean<AccessKeyFilter> accessKeyFilter() {
+        FilterRegistrationBean<AccessKeyFilter> bean = new FilterRegistrationBean<>();
+        bean.setFilter(new AccessKeyFilter());
+        bean.addUrlPatterns("/api/*");
+        bean.setOrder(2);  // ← 순서 지정: 2번 (LogFilter 다음)
+        bean.setName("AccessKeyFilter");
+        return bean;
+    }
+}
+```
+
+---
+
+#### FilterRegistrationBean 상세 설명
+
+**FilterRegistrationBean**: 필터를 Spring Bean으로 등록하고 서블릿 컨테이너에 등록을 중개하는 클래스
+
+**주요 메서드**:
+
+| 메서드 | 역할 | 예시 |
+|-------|------|------|
+| **setFilter()** | 등록할 필터 객체 지정 | `bean.setFilter(new LogFilter())` |
+| **addUrlPatterns()** | 필터를 적용할 URL 패턴 지정 | `bean.addUrlPatterns("/api/*")` |
+| **setOrder()** | 필터 실행 순서 지정 (숫자가 작을수록 먼저 실행) | `bean.setOrder(1)` |
+| **setName()** | 필터 이름 지정 | `bean.setName("LogFilter")` |
+
+---
+
+#### 빈 등록 방식 비교
+
+**방법 1: 어노테이션 기반 자동 등록**
+
+```java
+@Component  // 또는 @Service, @Repository, @Controller
+public class MyService {
+    // Spring이 자동으로 빈 생성 및 등록
+}
+```
+
+**방법 2: Configuration 클래스 기반 수동 등록**
+
+```java
+@Configuration
+public class AppConfig {
+    @Bean
+    public MyService myService() {
+        return new MyService();  // 개발자가 직접 빈 생성 및 등록
+    }
+}
+```
+
+---
+
+**필터의 경우**:
+
+| 방식 | 어노테이션 | 순서 제어 | 권장 여부 |
+|-----|----------|---------|---------|
+| **@WebFilter** | 어노테이션 기반 | ❌ 불가능 | ❌ 비권장 |
+| **FilterRegistrationBean** | Configuration 기반 | ✅ 가능 | ✅ 권장 |
+
+**핵심**: 순서 제어가 필요한 필터는 `FilterConfig`를 통해 `@Bean`으로 등록!
+
+---
+
+#### 실행 순서 제어 결과
+
+**설정된 순서**:
+
+```
+1. LogFilter (Order = 1)
+2. AccessKeyFilter (Order = 2)
+```
+
+---
+
+**실제 실행 로그**:
+
+```
+INFO --- c.e.restfulapiSample.filter.LogFilter : time start - /api/members
+INFO --- c.e.r.filter.AccessKeyFilter : 인증 검사 시작
+(비즈니스 로직 실행...)
+INFO --- c.e.r.filter.AccessKeyFilter : 인증 완료 및 정상 호출 후 종료
+INFO --- c.e.restfulapiSample.filter.LogFilter : time end - /api/members
+INFO --- c.e.restfulapiSample.filter.LogFilter : total time : 299 , status : 200
+```
+
+**분석**:
+- ✅ LogFilter가 먼저 실행됨 (time start)
+- ✅ AccessKeyFilter가 그 다음 실행됨 (인증 검사 시작)
+- ✅ 응답은 역순으로 복귀 (AccessKeyFilter → LogFilter)
+- ✅ LogFilter가 전체 시간을 정확히 측정 (299ms)
+
+---
+
+**순서 제어 전후 비교**:
+
+| 구분 | 순서 제어 전 (@WebFilter) | 순서 제어 후 (FilterConfig) |
+|-----|-------------------------|--------------------------|
+| **실행 순서** | 알파벳 순 (AccessKeyFilter → LogFilter) | 지정한 순서 (LogFilter → AccessKeyFilter) |
+| **시간 측정** | ⚠️ 부정확 (인증 시간만 측정) | ✅ 정확 (전체 요청 시간 측정) |
+| **가독성** | ❌ 로그 순서 혼란스러움 | ✅ 로그 순서 명확 |
+
+---
+
+### 4.4.7 필터 실행 흐름 전체 정리
+
+#### 완전한 요청-응답 흐름
+
+**요청**:
+```
+GET http://localhost:8080/api/members
+Authorization: Bearer hanbit-access-key
+```
+
+---
+
+**전체 흐름**:
+
+```
+1. 클라이언트 요청 (HTTP GET /api/members)
+    ↓
+2. 톰캣(서블릿 컨테이너) 요청 수신
+    ↓
+3. URL 분석: /api/members
+    - LogFilter (Order=1) 적용 대상 확인
+    - AccessKeyFilter (Order=2) 적용 대상 확인
+    ↓
+4. FilterChain 생성
+    [LogFilter → AccessKeyFilter → MemberController]
+    ↓
+5. LogFilter.doFilter() 실행
+    - 전처리: startTime 기록, 로그 출력
+    - filterChain.doFilter() 호출
+    ↓
+6. AccessKeyFilter.doFilterInternal() 실행
+    - 전처리: 인증 키 검증
+    - 인증 성공 시 filterChain.doFilter() 호출
+    ↓
+7. MemberController.getAll() 실행
+    - Service → Repository → DB
+    - 회원 목록 조회
+    - MemberResponse 리스트 반환
+    ↓
+8. 응답 역순 복귀
+    ↓
+9. AccessKeyFilter 후처리
+    - 로그 출력: "인증 완료 및 정상 호출 후 종료"
+    ↓
+10. LogFilter 후처리
+    - endTime 기록
+    - 총 소요 시간 계산
+    - 로그 출력: "time end", "total time"
+    ↓
+11. 톰캣을 거쳐 클라이언트에게 응답
+    ↓
+12. 클라이언트 수신 (200 OK, 회원 목록 JSON)
+```
+---
+
+### 4.4.8 핵심 정리
+
+#### 필터의 핵심 개념
+
+| 항목 | 설명 |
+|-----|------|
+| **정의** | 요청/응답을 가로채서 전처리/후처리를 수행하는 객체 |
+| **관리** | 서블릿 컨테이너(톰캣)가 관리 |
+| **위치** | DispatcherServlet 앞 (가장 먼저 실행) |
+| **역할** | 공통 관심사 처리 (인증, 로깅, 인코딩 등) |
+
+---
+
+#### 필터 구현 방법
+
+| 방법 | 인터페이스/클래스 | 사용 시나리오 |
+|-----|----------------|-------------|
+| **일반 필터** | `implements Filter` | 단순 전처리/후처리 |
+| **요청당 1회 필터** | `extends OncePerRequestFilter` | 인증/인가 (중복 실행 방지) |
+
+---
+
+#### 필터 등록 방법
+
+| 방법 | 순서 제어 | 의존성 주입 | 권장 여부 |
+|-----|---------|-----------|---------|
+| **@WebFilter** | ❌ 불가능 | ❌ 제한적 | △ 단순 필터 |
+| **FilterRegistrationBean** | ✅ 가능 | ✅ 가능 | ✅ 권장 |
+
+---
+
+#### FilterChain의 역할
+
+```
+filterChain.doFilter(request, response)
+= "다음 필터 또는 컨트롤러로 요청을 전달해주세요"
+```
+
+**핵심**:
+- 호출하면: 다음 단계로 **통과**
+- 호출 안 하면: 요청 **차단**
+
+---
+
+#### 필터 실행 순서
+
+```
+Order 값이 작을수록 먼저 실행
+Order 1 → Order 2 → Order 3 → Controller
+```
+
+**후처리는 역순**:
+```
+Controller → Order 3 → Order 2 → Order 1
+```
+
+---
+
+#### 실무 활용 팁
+
+**1. 필터 체인 순서 설계**:
+```
+1. 로깅 (전체 시간 측정)
+2. 인코딩 설정
+3. CORS 설정
+4. 인증 (Authentication)
+5. 인가 (Authorization)
+→ Controller
+```
+
+---
+
+**2. 인증 실패 시 빠른 차단**:
+```java
+if (!isAuthenticated) {
+    response.setStatus(401);
+    return;  // filterChain.doFilter() 호출 안 함
+}
+```
+
+---
+
+**3. OncePerRequestFilter 사용**:
+- 인증/인가 필터는 항상 `OncePerRequestFilter` 상속
+- 포워딩으로 인한 중복 실행 방지
+
+---
+
+**4. Configuration으로 관리**:
+- `FilterConfig` 클래스에서 모든 필터 순서 관리
+- 유지보수 용이, 순서 변경 간편
+
+
 
 
 
