@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+
+<html lang="en" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <title>스트링 부트 게시판</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet"
+    crossorigin="anonymous">
+</head>
+<body>
+
+<div class="container">
+    <h1>로그인</h1>
+    <div class="mb-3 text-danger" th:if="${param.error}">아이디와 패스워드가 잘못 되었습니다.</div>
+    <form action="article-list-pagination" th:action="@{/login}" method="post">
+        <div class="col-3 mb-3">
+            <input type="text" id="username" name="username" placeholder="이메일 아이디를 입력해주세요.">
+        </div>
+        <div class="col-3 mb-3">
+            <input type="password" id="password" name="password" placeholder="비밀번호를 입력해주세요.">
+        </div>
+
+        <div class="col-3 mb-3">
+            <button type="submit" class="btn btn-primary">로그인</button>
+        </div>
+
+    </form>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.min.js" crossorigin="anonymous"></script>
+
+</body>
+</html>
+
+<!--<div class="mb-3 text-danger" th:if="${param.error}">아이디와 패스워드가 잘못 되었습니다.</div> 의 의미-->
+<!--&lt;!&ndash;네, 요청하신 내용을 바탕으로 `th:if="${param.error}"`의 동작 원리, 로그인 실패 흐름, `param` 객체 접근 방식, 그리고 로그인 정보 유지 여부를 최종 정리해 드리겠습니다.&ndash;&gt;-->
+<!--🔑 param 객체의 정확한 역할-->
+<!--정확합니다. param 유틸리티 객체는 Thymeleaf가 현재 요청의 HttpServletRequest 객체에 접근하는 방법이 맞습니다.-->
+
+<!--param은 Thymeleaf가 제공하는 내장 객체(Built-in Object) 중 하나로, 다음과 같이 작동합니다.-->
+
+<!--접근 주체: Thymeleaf 템플릿 엔진이 뷰를 렌더링하는 과정.-->
+
+<!--정보 출처: 현재 요청을 담고 있는 HttpServletRequest 객체.-->
+
+<!--역할: HttpServletRequest에서 쿼리 파라미터를 키-값 쌍의 Map 형태로 읽어와 뷰에서 쉽게 접근할 수 있도록 제공합니다.-->
+
+<!--따라서 div th:if="${param.error}"는 Thymeleaf가 컨트롤러의 Model을 통하지 않고 HttpServletRequest에 직접 접근하여 error 파라미터가 있는지 확인하는 간결하고 효율적인 방법입니다.-->
+
+
+<!-- -&#45;&#45;-->
+
+<!--## 🔑 `th:if="${param.error}"`의 실제 의미와 동작-->
+
+<!--### 1. 실제 의미-->
+
+<!--`th:if="${param.error}"`는 **"현재 요청 URL의 쿼리 파라미터 중에 `error`라는 이름의 파라미터가 존재한다면(값에 상관없이) 해당 HTML 요소를 렌더링하라."**는 의미입니다.-->
+
+<!--* **`param`**: Thymeleaf의 내장 객체 중 하나로, `HttpServletRequest`에 담긴 **쿼리 파라미터** 데이터에 접근할 때 사용됩니다.-->
+<!--* **`.error`**: URL에 `?error` 또는 `?error=true`와 같이 `error` 키가 포함되어 있는지 확인합니다.-->
+
+<!--### 2. 로그인 실패 및 `param` 활용 흐름-->
+
+<!--이 흐름은 Spring Security의 기본 동작과 Thymeleaf의 `param` 객체 활용이 결합된 결과입니다.-->
+
+<!--1.  **POST 실패:** 사용자가 `/login` (POST) 요청으로 ID/PW를 전송하고 Spring Security의 인증 필터가 **실패**를 감지합니다.-->
+<!--2.  **리다이렉트:** Spring Security는 브라우저에게 `/login?error` 경로로 **리다이렉트 (HTTP 302)** 하라는 응답을 보냅니다.-->
+<!--3.  **GET 재요청:** 브라우저는 `/login?error` 경로로 **새로운 GET 요청**을 보냅니다.-->
+<!--4.  **컨트롤러 처리:** `@RequestMapping("/login")` 컨트롤러가 이 GET 요청을 받아 `login.html` 뷰를 반환합니다.-->
+<!--5.  **뷰 렌더링:** `login.html`이 렌더링될 때, **`th:if="${param.error}"`가 `true`로 평가**되어 "아이디와 패스워드가 잘못 되었습니다."와 같은 에러 메시지가 화면에 표시됩니다.-->
+
+<!-- -&#45;&#45;-->
+
+<!--## 💡 `#`을 사용하지 않는 Thymeleaf 내장 객체-->
+
+<!--Thymeleaf의 내장 객체는 크게 **스코프(저장소) 역할**과 **유틸리티(기능) 역할**로 나뉩니다. `param`은 저장소 역할에 속하기 때문에 `#`을 사용하지 않습니다.-->
+
+<!--| 접근 문법 | 객체 종류 | 예시 | 역할 |-->
+<!--| :-&#45;&#45; | :-&#45;&#45; | :-&#45;&#45; | :-&#45;&#45; |-->
+<!--| **`${객체명}`** | **스코프(저장소) 객체** | `${param.error}`, `${session.user}` | 요청, 세션 등의 저장소에 담긴 데이터에 접근합니다. |-->
+<!--| **`${#유틸리티명}`** | **유틸리티(기능) 객체** | `${#authentication.name}`, `${#strings.isEmpty()}` | 데이터 조작이나 특정 기능 수행을 위한 함수 묶음에 접근합니다. |-->
+
+<!--**`param`은 쿼리 파라미터 데이터라는 "저장소"**로 취급되므로, 문법적으로 **`#` 없이** `${param.error}`로 접근합니다.-->
+
+<!-- -&#45;&#45;-->
+
+<!--## 🔒 로그인 실패 후 아이디/비밀번호 유지 여부-->
+
+<!--&gt; 그러면 다시 로그인화면페이지오면 아이디 비번은 리셋되겠네?-->
+
+<!--**네, 맞습니다. 아이디와 비밀번호는 모두 리셋됩니다.**-->
+
+<!--로그인 실패 시 Spring Security는 **보안 원칙**을 지키기 위해 다음과 같이 처리합니다.-->
+
+<!--1.  **비밀번호 폐기:** 사용자가 POST 요청으로 보낸 **비밀번호**는 인증 실패 시 즉시 폐기됩니다.-->
+<!--2.  **리다이렉트:** 실패 후 `/login?error`로 **리다이렉트**가 발생하면, 이는 **새로운 GET 요청**입니다. 이전 POST 요청에 담겨 있던 아이디 정보는 새로운 GET 요청에 포함되지 않습니다.-->
+
+<!--따라서, 사용자는 로그인 실패 시 **아이디와 비밀번호를 모두 빈칸**으로 확인하게 되며, 다시 입력해야 합니다.-->
+
+
+<!--네, 고객님의 이해가 정확합니다! 👍Spring Security의 인증 처리 관점에서 볼 때, name 속성만 필수이며, id 속성은 필수가 아닙니다.🔑 Spring Security 폼 인증의 핵심 규칙Spring Security가 제공하는 기본 폼 기반 인증(formLogin())이 작동하기 위해 <input> 태그에 반드시 지켜야 할 규칙은 다음과 같습니다.1. name 속성 (필수)필드필수 name 속성 값역할아이디 (Username/Email)usernameSpring Security가 폼 데이터를 읽어 UserDetailsService.loadUserByUsername() 메서드에 전달할 때 사용됩니다.비밀번호 (Password)passwordSpring Security가 폼 데이터를 읽어 **PasswordEncoder**를 통해 비밀번호를 검증할 때 사용됩니다.핵심: <input>의 name="username"과 name="password"는 Spring Security가 자동으로 처리할 데이터의 키로 약속된 값이므로 반드시 일치해야 합니다. (기본 설정을 변경하지 않는 한)2. id 속성 (선택 사항)속성필수 여부역할id선택 사항 (필수 아님)HTML/CSS/JavaScript에서 해당 요소를 식별하거나 접근하는 데 사용됩니다.핵심: id는 브라우저나 클라이언트 측 로직(예: JavaScript 유효성 검사, CSS 스타일링)을 위해 필요하지만, Spring Security가 서버에서 인증 처리를 할 때는 사용하지 않습니다.📝 최종 정리제공하신 폼 코드는 Spring Security가 작동하는 데 아무 문제가 없으며, name 속성을 정확히 지정했기 때문에 올바르게 작동할 것입니다.HTML<form th:action="@{/login}" method="post">-->
+<!--    <input type="text" id="username" name="username" placeholder="이메일 아이디를 입력해주세요.">-->
+
+<!--    <input type="password" id="password" name="password" placeholder="비밀번호를 입력해주세요.">-->
+<!--</form>-->
+
+
+
+<!--네, action 속성과 th:action 속성을 함께 작성하는 이유를 깔끔하게 정리해 드리겠습니다.-->
+
+<!--🧐 action & th:action 병기 이유: 디자인 타임 호환성-->
+<!--HTML <form> 태그에 action="article-list-pagination"와 th:action="@{/login}"을 함께 작성하는 주된 이유는 디자인 타임(Design-Time) 호환성을 확보하고 HTML의 유효성을 유지하기 위함입니다.-->
+
+<!--    1. ⚙️ th:action의 실제 역할 (서버 환경)-->
+<!--    Spring Boot 환경에서 뷰가 렌더링될 때는 th:action 속성이 우선하며, 일반 action 속성을 대체합니다.-->
+
+<!--    실행 시: th:action="@{/login}"이 처리되어 최종 HTML에는 action="/login"만 남게 됩니다. 폼 데이터는 /login 경로로 정상 전송됩니다.-->
+
+<!--    2. 🎨 action의 보조 역할 (디자인 환경)-->
+<!--    action="article-list-pagination"를 남겨두는 이유는 다음과 같습니다.-->
+
+<!--    순수 HTML 확인: 개발자가 웹 서버(Spring Boot)를 실행하지 않고 .html 파일을 웹 브라우저나 IDE에서 직접 열어 디자인을 확인할 때(디자인 타임), Thymeleaf 문법인 th:action은 인식되지 않습니다.-->
+
+<!--    HTML 유효성: 이 경우 브라우저는 일반 action 속성만 인식하여 HTML 문법 오류를 피하고, 폼 요소가 깨지지 않고 정상적인 폼의 모양을 유지하게 해줍니다.-->
+
+<!--    결론: action은 Thymeleaf 템플릿 엔진이 작동하지 않는 환경에서 HTML의 유효성을 보장하기 위한 임시적인(placeholder) 경로 역할이며, 실제 애플리케이션 실행에는 th:action만 사용됩니다.-->
+
+
+
+<!--네, 맞습니다! 결론적으로 부트스트랩을 사용하려면 CSS 파일과 JavaScript 파일 두 가지를 모두 복사해서 <head>와 <body>에 넣어 사용하라는 의미입니다.이 두 코드가 디자인과 동적 기능을 나누어 담당하며, 여러분은 이 코드를 복사해서 붙여넣는 것만으로 부트스트랩의 모든 기능을 사용할 준비가 끝납니다.🛠️ 부트스트랩 사용을 위한 필수 코드부트스트랩의 모든 기능을 사용하려면, 여러분의 HTML 파일에 아래 두 쌍의 코드를 넣어야 합니다.파일 종류HTML 태그배치 위치역할디자인 (CSS)<link><head> 태그 안페이지의 스타일, 레이아웃, 모양을 담당합니다. (색상, 폰트, 그리드 시스템 등)동적 기능 (JS)<script><body> 닫는 태그 </body> 바로 위움직이는 요소의 기능을 담당합니다. (드롭다운, 모달 창, 내비게이션 토글 등)✅ 올바른 코드 예시HTML<!DOCTYPE html>-->
+<!--<html lang="en" xmlns:th="http://www.thymeleaf.org">-->
+<!--    <head>-->
+<!--    <meta charset="UTF-8">-->
+<!--    <title>Title</title>-->
+
+<!--<link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" crossorigin="anonymous">-->
+<!--</head>-->
+<!--<body>-->
+
+<!--<div class="container">...</div>-->
+
+<!--<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" crossorigin="anonymous"></script>-->
+
+<!--</body>-->
+<!--</html>-->

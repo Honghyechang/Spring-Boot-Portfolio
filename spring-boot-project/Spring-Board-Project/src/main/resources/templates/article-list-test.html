@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+
+<html lang="en" xmlns:th="http://www.thymeleaf.org"   xmlns:sec="http://www.thymeleaf.org/extras/spring-security">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<a th:href="@{/signup}">회원가입</a>
+<h2 sec:authorize="isAuthenticated()">
+    로그인 성공
+    안녕하세요, <span sec:authentication="principal.displayName">이름</span>님! 반갑습니다.
+
+    <p>로그인 아이디 (이메일): <strong><span sec:authentication="principal.username">아이디</span></strong></p>
+
+    <p>권한: <span sec:authentication="principal.authorities">권한 없음</span></p>
+
+    <a th:href="@{/password}">비밀번호 변경 페이지 이동</a>
+
+    <a th:href="@{/logout}">로그아웃 페이지 이동</a>
+</h2>
+<h2 sec:authorize="isAnonymous()">  비회원 고객님 안녕하세요. </h2>
+
+</body>
+</html>
+
