@@ -1029,9 +1029,7 @@ public class MemberService {
     // 이메일로 회원 조회 (중복 체크용)
     public Optional<MemberDto> findByEmail(String email) {
         Optional<Member> member = memberRepository.findByEmail(email);
-        return member.stream()
-                .map(this::mapToMemberDto)
-                .findFirst();
+        return member.map(this::mapToMemberDto);
     }
 
     // 비밀번호 확인
@@ -1057,23 +1055,21 @@ public class MemberService {
 
 ```java
 public Optional<MemberDto> findByEmail(String email) {
-    Optional<Member> member = memberRepository.findByEmail(email);
-    return member.stream()
-            .map(this::mapToMemberDto)
-            .findFirst();
+    // 1. Optional<Member>를 가져옵니다.
+    Optional<Member> member = memberRepository.findByEmail(email); 
+    
+    // 2. Optional의 map 메서드를 사용하여 조건부 변환을 수행합니다.
+    return member.map(this::mapToMemberDto); 
+    // 반환 타입은 Optional<MemberDto>입니다.
 }
 ```
 
 - 이메일로 회원을 조회합니다. (회원가입 시 중복 체크에 사용)
 - `Optional<Member>`를 `Optional<MemberDto>`로 변환하는 스트림 기법:
 
-| 상태 | 처리 과정 | 결과 |
-|------|----------|------|
-| 값이 존재 | `stream()` → `map(변환)` → `findFirst()` | `Optional.of(MemberDto)` |
-| 값이 없음 | `stream()` → `map(실행 안 됨)` → `findFirst()` | `Optional.empty()` |
+Optional<Member> 객체가 가진 map() 메서드를 호출합니다. 이 메서드는 member 안에 Member 객체가 존재할 때만 변환 함수를 실행합니다.
 
-- 이 패턴은 아래 if-else 문과 동일한 결과를 냅니다:
-
+이 패턴은 아래 if-else 문과 동일한 결과를 냅니다:
 ```java
 if (member.isPresent()) {
     MemberDto dto = mapToMemberDto(member.get());
@@ -2626,7 +2622,1256 @@ boolean matches = passwordEncoder.matches(inputPassword, storedPassword);
 
 ---
 
+# 4. 게시글 조회, 입력, 수정, 삭제 구현
 
+이 단계에서는 게시판의 핵심 기능인 게시글 CRUD(Create, Read, Update, Delete)를 구현합니다. 먼저 게시글 목록을 보여주는 기능부터 시작하여, 레이아웃 시스템과 페이징 처리를 구현합니다.
+
+---
+
+## 4.1 레이아웃 시스템 구축
+
+실제 게시판 애플리케이션에서는 네비게이션바, 푸터 등 모든 페이지에서 공통으로 사용되는 UI 요소가 있습니다. 이를 매 페이지마다 복사-붙여넣기하는 것은 비효율적이며, 유지보수가 어렵습니다. Thymeleaf의 **프래그먼트(Fragment)** 기능을 사용하면 이 문제를 해결할 수 있습니다.
+
+### 레이아웃 패턴의 핵심 아이디어
+
+```
+┌─────────────────────────────────────────┐
+│ base-layout.html (레이아웃 틀)          │
+│ ┌─────────────────────────────────────┐ │
+│ │ <head> (공통 CSS, JS)               │ │
+│ │ <nav> (네비게이션바)                │ │
+│ │ ┌─────────────────────────────────┐ │ │
+│ │ │ 여기에 각 페이지의 고유 내용 삽입│ │ │
+│ │ │ (content 매개변수)              │ │ │
+│ │ └─────────────────────────────────┘ │ │
+│ │ <script> (공통 JavaScript)          │ │
+│ └─────────────────────────────────────┘ │
+└─────────────────────────────────────────┘
+```
+
+### base-layout.html - 공통 레이아웃 정의
+
+```html
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org" 
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security"
+      th:fragment="layout(content)">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>스프링 부트 게시판</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" 
+          rel="stylesheet" crossorigin="anonymous">
+</head>
+<body>
+<nav class="navbar navbar-expand bg-dark" data-bs-theme="dark">
+    <div class="container">
+        <a class="navbar-brand" th:href="@{/article/list}">
+            <img th:src="@{/images/spring.svg}" width="30" height="30" 
+                 class="d-inline-block align-text-top">
+            스프링 부트 게시판
+        </a>
+
+        <ul class="navbar-nav">
+            <!-- 비로그인 사용자에게만 표시 -->
+            <li sec:authorize="isAnonymous()" class="nav-item">
+                <a th:href="@{/login}" class="nav-link">로그인</a>
+            </li>
+            <li sec:authorize="isAnonymous()" class="nav-item">
+                <a th:href="@{/signup}" class="nav-link">회원가입</a>
+            </li>
+
+            <!-- 관리자에게만 표시 -->
+            <li sec:authorize="hasAuthority('ROLE_ADMIN')" class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle" role="button" 
+                   data-bs-toggle="dropdown" aria-expanded="false">
+                    관리
+                </a>
+                <ul class="dropdown-menu">
+                    <li><a th:href="@{/member/list}">회원관리</a></li>
+                </ul>
+            </li>
+
+            <!-- 로그인한 사용자에게만 표시 -->
+            <li sec:authorize="isAuthenticated()" class="nav-item dropdown">
+                <a class="nav-link dropdown-toggle" role="button" 
+                   data-bs-toggle="dropdown" aria-expanded="false" 
+                   sec:authentication="principal.displayName">
+                    이름
+                </a>
+                <ul class="dropdown-menu">
+                    <li><a th:href="@{/password}">비밀번호 변경</a></li>
+                    <li><a th:href="@{/logout}">로그아웃</a></li>
+                </ul>
+            </li>
+        </ul>
+    </div>
+</nav>
+
+<!-- 여기에 각 페이지의 고유 내용이 삽입됩니다 -->
+<div th:replace="${content}">내용 대체</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" 
+        crossorigin="anonymous"></script>
+</body>
+</html>
+```
+
+#### 핵심 구성 요소 설명
+
+**1. 프래그먼트 정의**
+
+```html
+th:fragment="layout(content)"
+```
+
+| 요소 | 설명 |
+|------|------|
+| `th:fragment="layout"` | 이 HTML을 `layout`이라는 이름의 **재사용 가능한 조각**으로 정의합니다. |
+| `(content)` | 이 프래그먼트를 사용하는 쪽에서 전달받을 **매개변수**입니다. 각 페이지의 고유 내용이 이 매개변수로 전달됩니다. |
+
+**2. 내용 삽입 영역**
+
+```html
+<div th:replace="${content}">내용 대체</div>
+```
+
+- `th:replace="${content}"`: 매개변수로 받은 `content`의 내용으로 이 `<div>` 태그 전체를 **교체(replace)**합니다.
+- "내용 대체"라는 텍스트는 기본값으로, 실제 렌더링 시에는 전달된 내용으로 완전히 대체됩니다.
+
+**3. Bootstrap Bundle JS 사용**
+
+```html
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" 
+        crossorigin="anonymous"></script>
+```
+
+- **중요**: `bootstrap.bundle.min.js`를 사용해야 드롭다운, 모달 등의 동적 기능이 작동합니다.
+- `bootstrap.min.js`만 로드하면 Popper.js가 누락되어 드롭다운이 작동하지 않습니다.
+
+**4. Spring Security 통합 태그**
+
+| 태그 | 조건 | 표시 대상 |
+|------|------|-----------|
+| `sec:authorize="isAnonymous()"` | 비로그인 사용자 | 로그인, 회원가입 링크 |
+| `sec:authorize="isAuthenticated()"` | 로그인한 사용자 | 사용자 정보, 비밀번호 변경, 로그아웃 |
+| `sec:authorize="hasAuthority('ROLE_ADMIN')"` | 관리자 권한 보유 | 관리 메뉴 (회원관리) |
+| `sec:authentication="principal.displayName"` | - | 현재 로그인한 사용자의 이름 표시 |
+
+### 레이아웃 사용 예시 - article-list-test.html
+
+레이아웃을 실제로 사용하는 방법을 테스트 페이지로 확인해봅시다.
+
+```html
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"   
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security"
+      th:replace="~{/base-layout::layout(  ~{::section}  )}">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<section th:fragment="section">
+    <a th:href="@{/signup}">회원가입</a>
+    
+    <!-- 로그인한 사용자에게만 표시 -->
+    <h2 sec:authorize="isAuthenticated()">
+        로그인 성공
+        안녕하세요, <span sec:authentication="principal.displayName">이름</span>님! 반갑습니다.
+
+        <p>로그인 아이디 (이메일): 
+           <strong><span sec:authentication="principal.username">아이디</span></strong>
+        </p>
+
+        <p>권한: <span sec:authentication="principal.authorities">권한 없음</span></p>
+
+        <a th:href="@{/password}">비밀번호 변경 페이지 이동</a>
+        <a th:href="@{/logout}">로그아웃 페이지 이동</a>
+    </h2>
+    
+    <!-- 비로그인 사용자에게만 표시 -->
+    <h2 sec:authorize="isAnonymous()">비회원 고객님 안녕하세요.</h2>
+</section>
+</body>
+</html>
+```
+
+#### 레이아웃 사용 방법 분석
+
+**1. 레이아웃 호출 및 내용 전달**
+
+```html
+th:replace="~{/base-layout::layout(  ~{::section}  )}"
+```
+
+이 구문이 레이아웃 시스템의 핵심입니다. 각 부분을 분해해봅시다:
+
+| 부분 | 의미 |
+|------|------|
+| `th:replace` | 현재 `<html>` 태그 전체를 다른 프래그먼트로 **교체**하라는 명령입니다. |
+| `~{/base-layout::layout}` | `/base-layout.html` 파일의 `layout` 프래그먼트를 사용하겠다는 의미입니다. |
+| `(~{::section})` | 현재 파일의 `section` 프래그먼트를 **매개변수로 전달**합니다. |
+
+**2. 프래그먼트 문법 상세**
+
+```
+~{프래그먼트 선택자}
+```
+
+| 문법 | 의미 | 예시 |
+|------|------|------|
+| `~{/파일경로::프래그먼트명}` | 다른 파일의 프래그먼트를 참조 | `~{/base-layout::layout}` |
+| `~{::프래그먼트명}` | **현재 파일**의 프래그먼트를 참조 | `~{::section}` |
+
+**3. 동작 흐름**
+
+```
+1. 브라우저: /article/list-test 요청
+   ↓
+2. 컨트롤러: "article-list-test" 뷰 이름 반환
+   ↓
+3. Thymeleaf: article-list-test.html 파일 로드
+   ↓
+4. th:replace 구문 발견
+   ↓
+5. base-layout.html의 layout 프래그먼트 로드
+   ↓
+6. 현재 파일의 <section th:fragment="section"> 내용을 추출
+   ↓
+7. base-layout의 <div th:replace="${content}"> 위치에 section 내용 삽입
+   ↓
+8. 최종 HTML 생성: 네비게이션바 + 고유 내용 + JavaScript
+   ↓
+9. 브라우저로 응답
+```
+
+**4. 최종 렌더링 결과 구조**
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <!-- base-layout의 공통 CSS -->
+    <link href=".../bootstrap.min.css">
+</head>
+<body>
+    <!-- base-layout의 네비게이션바 -->
+    <nav class="navbar">...</nav>
+    
+    <!-- article-list-test의 section 내용이 여기에 삽입됨 -->
+    <section>
+        <a href="/signup">회원가입</a>
+        <h2>로그인 성공 안녕하세요, 홍혜창님! ...</h2>
+    </section>
+    
+    <!-- base-layout의 공통 JavaScript -->
+    <script src=".../bootstrap.bundle.min.js"></script>
+</body>
+</html>
+```
+
+#### 레이아웃 패턴의 장점
+
+| 장점 | 설명 |
+|------|------|
+| **재사용성** | 네비게이션바와 CSS/JS 링크를 한 번만 작성하면 모든 페이지에서 사용 가능합니다. |
+| **유지보수성** | 네비게이션바를 수정하면 모든 페이지에 자동으로 반영됩니다. |
+| **일관성** | 모든 페이지가 동일한 레이아웃 구조를 가지므로 UI 일관성이 유지됩니다. |
+| **분리된 관심사** | 공통 레이아웃과 페이지 고유 내용을 명확하게 분리합니다. |
+
+---
+
+## 4.2 게시글 목록 화면 구현
+
+게시글 목록을 보여주는 기능은 두 단계로 나누어 구현합니다:
+
+1. **1단계**: 모든 게시글을 한 번에 조회하여 보여주기 (단순 List 사용)
+2. **2단계**: 페이지네이션을 적용하여 일부 게시글만 조회하기 (Page 사용)
+
+### 1단계: 전체 게시글 목록 조회
+
+#### ArticleController - 기본 목록 조회
+
+```java
+@Controller
+@RequestMapping("/article")
+@RequiredArgsConstructor
+@Slf4j
+public class ArticleController {
+
+    private final ArticleService articleService;
+
+    @RequestMapping("/list")
+    public String getArticleList(Model model) {
+        List<ArticleDto> articles = articleService.findAll();
+        model.addAttribute("articles", articles);
+        return "article-list";
+    }
+}
+```
+
+**동작 흐름**
+
+```
+1. 사용자: GET /article/list 요청
+   ↓
+2. Controller: articleService.findAll() 호출
+   ↓
+3. Service: articleRepository.findAll() 호출
+   ↓
+4. Repository: SELECT * FROM article (전체 조회)
+   ↓
+5. Service: Article 엔티티를 ArticleDto로 변환
+   ↓
+6. Controller: Model에 articles 저장
+   ↓
+7. View: article-list.html 렌더링
+```
+
+#### ArticleService - 전체 조회 메서드
+
+```java
+@Service
+@RequiredArgsConstructor
+public class ArticleService {
+    private final ArticleRepository articleRepository;
+    private final MemberRepository memberRepository;
+
+    // Entity → DTO 변환 메서드
+    public ArticleDto mapToArticleDto(Article article) {
+        return ArticleDto.builder()
+                .id(article.getId())
+                .title(article.getTitle())
+                .description(article.getDescription())
+                .created(article.getCreated())
+                .updated(article.getUpdated())
+                .memberId(article.getMember().getId())
+                .name(article.getMember().getName())
+                .email(article.getMember().getEmail())
+                .build();
+    }
+
+    // 전체 게시글 조회
+    public List<ArticleDto> findAll() {
+        List<Article> articles = articleRepository.findAll();
+        return articles.stream()
+                .map(i -> mapToArticleDto(i))
+                .collect(Collectors.toList());
+    }
+}
+```
+
+**Stream을 이용한 변환**
+
+```java
+articles.stream()
+    .map(i -> mapToArticleDto(i))
+    .collect(Collectors.toList());
+```
+
+| 단계 | 메서드 | 역할 |
+|------|--------|------|
+| 1 | `stream()` | `List<Article>`을 스트림으로 변환합니다. |
+| 2 | `map(i -> mapToArticleDto(i))` | 각 `Article` 객체를 `ArticleDto`로 변환합니다. |
+| 3 | `collect(Collectors.toList())` | 변환된 요소들을 다시 `List<ArticleDto>`로 수집합니다. |
+
+#### article-list.html (1단계 버전)
+
+```html
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"   
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security"
+      th:replace="~{/base-layout::layout(~{::section})}">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<section th:fragment="section">
+    <table class="table">
+        <thead>
+            <tr>
+                <td>#</td>
+                <td>제목</td>
+                <td>작성자</td>
+                <td>수정날짜</td>
+            </tr>
+        </thead>
+
+        <tbody>
+        <tr th:each="article : ${articles}">
+            <td th:text="${article.id}"></td>
+            <td>
+                <a th:href="@{/article/content (id=${article.id})}" 
+                   th:text="${article.title}"></a>
+            </td>
+            <td th:text="${article.name}"></td>
+            <td th:text="${#temporals.format(article.updated,'yyyy-MM-dd HH:mm:ss')}"></td>
+        </tr>
+        </tbody>
+    </table>
+</section>
+</body>
+</html>
+```
+
+#### 핵심 Thymeleaf 문법
+
+**1. 반복문 - th:each**
+
+```html
+<tr th:each="article : ${articles}">
+```
+
+- `${articles}`: Model에 저장된 `List<ArticleDto>`를 참조합니다.
+- `article`: 현재 반복 중인 게시글 객체를 담는 변수명입니다.
+- 각 반복마다 새로운 `<tr>` 태그가 생성됩니다.
+
+**2. 링크에 파라미터 전달**
+
+```html
+<a th:href="@{/article/content (id=${article.id})}" 
+   th:text="${article.title}"></a>
+```
+
+**URL 생성 원리**
+
+```
+th:href="@{/article/content (id=${article.id})}"
+         └─────┬─────┘ └────────┬────────┘
+          기본 경로      쿼리 파라미터
+```
+
+| 구성 요소 | 역할 | 결과 |
+|-----------|------|------|
+| `@{/article/content}` | 기본 경로 | `/article/content` |
+| `(id=${article.id})` | 쿼리 파라미터 | `?id=5` |
+| **최종 URL** | - | `/article/content?id=5` |
+
+**파라미터 전달 방식**
+
+Thymeleaf는 소괄호 `()` 안의 내용을 분석합니다:
+
+1. 컨트롤러 매핑에 `{id}` 같은 **Path Variable**이 있는가?
+   - 있다면: `/article/content/5` (경로에 포함)
+   - 없다면: `/article/content?id=5` (쿼리 스트링으로)
+
+현재 우리 컨트롤러는 `/article/content`로 매핑되어 있으므로, `id`는 쿼리 파라미터로 전달됩니다.
+
+**3. 날짜 포맷팅 - #temporals**
+
+```html
+<td th:text="${#temporals.format(article.updated,'yyyy-MM-dd HH:mm:ss')}"></td>
+```
+
+**#calendars vs #temporals**
+
+| 유틸리티 | 대상 Java 타입 | 사용 시기 |
+|----------|---------------|----------|
+| `#calendars` | `java.util.Date`, `java.util.Calendar` | Java 8 이전 레거시 타입 |
+| `#temporals` | `java.time.LocalDateTime`, `java.time.ZonedDateTime` | Java 8 이후 모던 타입 |
+
+**처음에 발생했던 오류**
+
+```html
+<!-- ❌ 오류 발생 -->
+<td th:text="${#calendars.format(article.updated,'yyyy-MM-dd HH:mm:ss')}"></td>
+```
+
+**오류 원인**
+
+```
+LocalDateTime (Modern) → #calendars (Legacy) → 타입 불일치 오류!
+```
+
+- `Article` 엔티티의 `updated` 필드는 `LocalDateTime` 타입입니다.
+- `#calendars`는 `Date`/`Calendar` 타입만 처리할 수 있습니다.
+- 타입 불일치로 인해 예외가 발생합니다.
+
+**해결 방법**
+
+```html
+<!-- ✅ 정상 동작 -->
+<td th:text="${#temporals.format(article.updated,'yyyy-MM-dd HH:mm:ss')}"></td>
+```
+
+- `LocalDateTime` 타입은 반드시 `#temporals`를 사용해야 합니다.
+
+#### 1단계 방식의 문제점
+
+```java
+public List<ArticleDto> findAll() {
+    return articleRepository.findAll()  // SELECT * FROM article
+            .stream()
+            .map(i -> mapToArticleDto(i))
+            .collect(Collectors.toList());
+}
+```
+
+**성능 문제**
+
+| 게시글 수 | 조회 시간 | 메모리 사용 | 네트워크 전송 |
+|-----------|----------|-------------|--------------|
+| 10개 | 빠름 | 적음 | 적음 |
+| 100개 | 보통 | 보통 | 보통 |
+| 1,000개 | 느림 | 많음 | 많음 |
+| 10,000개 | **매우 느림** | **과도함** | **과도함** |
+
+**문제점 요약**
+
+1. **DB 부하**: 전체 게시글을 한 번에 조회하므로 DB에 부담을 줍니다.
+2. **메모리 낭비**: 사용자는 일부만 볼 텐데 모든 데이터를 메모리에 올립니다.
+3. **느린 응답**: 네트워크로 대량의 데이터를 전송하므로 응답이 느려집니다.
+4. **나쁜 UX**: 사용자는 스크롤을 과도하게 해야 원하는 게시글을 찾을 수 있습니다.
+
+**해결책**: **페이지네이션(Pagination)**을 적용하여 일부 게시글만 조회합니다.
+
+---
+
+### 2단계: 페이지네이션 적용
+
+페이지네이션은 대량의 데이터를 작은 단위(페이지)로 나누어 보여주는 기법입니다.
+
+#### Spring Data JPA의 Pageable
+
+Spring Data JPA는 페이징 처리를 매우 간단하게 만들어주는 **Pageable** 인터페이스를 제공합니다.
+
+**Pageable의 역할**
+
+```
+Pageable 객체는 "몇 페이지를, 몇 개씩, 어떤 순서로" 조회할지에 대한 정보를 담습니다.
+```
+
+| 속성 | 의미 | 예시 |
+|------|------|------|
+| `page` | 페이지 번호 (0부터 시작) | `page=2` (3번째 페이지) |
+| `size` | 한 페이지당 데이터 개수 | `size=10` (10개씩) |
+| `sort` | 정렬 기준 | `sort=id,desc` (ID 내림차순) |
+
+#### ArticleController - 페이지네이션 버전
+
+```java
+@Controller
+@RequestMapping("/article")
+@RequiredArgsConstructor
+@Slf4j
+public class ArticleController {
+
+    private final ArticleService articleService;
+
+    @RequestMapping("/list")
+    public String getArticleList(
+            @PageableDefault(size = 10, sort = "id", direction = Sort.Direction.DESC) 
+            Pageable pageable, 
+            Model model) {
+        
+        Page<ArticleDto> page = articleService.findAll(pageable);
+        model.addAttribute("page", page);
+        return "article-list";
+    }
+}
+```
+
+**@PageableDefault 상세 분석**
+
+```java
+@PageableDefault(size = 10, sort = "id", direction = Sort.Direction.DESC)
+Pageable pageable
+```
+
+| 속성 | 값 | 의미 |
+|------|-----|------|
+| `size` | `10` | 한 페이지당 10개의 게시글을 보여줍니다. |
+| `sort` | `"id"` | `id` 필드를 기준으로 정렬합니다. |
+| `direction` | `Sort.Direction.DESC` | 내림차순(최신순/큰 번호순)으로 정렬합니다. |
+
+**Pageable 객체 생성 과정**
+
+```
+1. 클라이언트 요청: GET /article/list?page=2
+   ↓
+2. Spring MVC: URL 파라미터 확인
+   - page=2 (명시적 요청)
+   - size=? (없음 → 기본값 10 사용)
+   - sort=? (없음 → 기본값 id,desc 사용)
+   ↓
+3. PageableHandlerMethodArgumentResolver 작동
+   ↓
+4. Pageable 객체 생성 및 주입
+   - page: 2
+   - size: 10
+   - sort: id,DESC
+   ↓
+5. 컨트롤러 메서드 실행
+```
+
+**기본값 적용 규칙**
+
+| 파라미터 | URL에 포함 | 사용되는 값 |
+|----------|-----------|------------|
+| `page` | ❌ | 자동으로 `0` (첫 페이지) |
+| `page` | ✅ `?page=3` | 사용자가 요청한 `3` |
+| `size` | ❌ | `@PageableDefault`의 `10` |
+| `size` | ✅ `?size=20` | 사용자가 요청한 `20` |
+| `sort` | ❌ | `@PageableDefault`의 `id,desc` |
+| `sort` | ✅ `?sort=title,asc` | 사용자가 요청한 `title,asc` |
+
+**클라이언트가 보내야 할 파라미터**
+
+```html
+<!-- 일반적인 페이지네이션 링크 -->
+<a th:href="@{/article/list(page=0)}">1페이지</a>
+<a th:href="@{/article/list(page=1)}">2페이지</a>
+<a th:href="@{/article/list(page=2)}">3페이지</a>
+```
+
+- **page만 전달**: 나머지(`size`, `sort`)는 `@PageableDefault`가 처리합니다.
+- **간결한 URL**: `/article/list?page=2`
+
+#### ArticleService - 페이지네이션 메서드
+
+```java
+@Service
+@RequiredArgsConstructor
+public class ArticleService {
+    private final ArticleRepository articleRepository;
+    private final MemberRepository memberRepository;
+
+    public ArticleDto mapToArticleDto(Article article) {
+        return ArticleDto.builder()
+                .id(article.getId())
+                .title(article.getTitle())
+                .description(article.getDescription())
+                .created(article.getCreated())
+                .updated(article.getUpdated())
+                .memberId(article.getMember().getId())
+                .name(article.getMember().getName())
+                .email(article.getMember().getEmail())
+                .build();
+    }
+
+    public Page<ArticleDto> findAll(Pageable pageable) {
+        return articleRepository.findAll(pageable).map(i -> mapToArticleDto(i));
+    }
+}
+```
+
+**Page 객체의 구조**
+
+```java
+Page<ArticleDto> page = articleRepository.findAll(pageable).map(...);
+```
+
+`Page` 객체는 두 가지 정보를 담고 있습니다:
+
+**1. 콘텐츠 정보 (현재 페이지 데이터)**
+
+| 메서드 | 반환 타입 | 설명 |
+|--------|----------|------|
+| `getContent()` | `List<Article>` | 현재 페이지의 실제 데이터 목록입니다. |
+| `getNumberOfElements()`
+| `int` | 현재 페이지에 실제로 담긴 데이터 개수입니다. |
+
+**2. 메타 정보 (페이지네이션 정보)**
+
+| 메서드 | 반환 타입 | 설명 |
+|--------|----------|------|
+| `getTotalElements()` | `long` | 전체 게시글 수 (예: 95개) |
+| `getTotalPages()` | `int` | 전체 페이지 수 (예: 10페이지) |
+| `getNumber()` | `int` | 현재 페이지 번호 (0부터 시작) |
+| `getSize()` | `int` | 한 페이지당 크기 (예: 10개) |
+| `isFirst()` | `boolean` | 첫 페이지 여부 |
+| `isLast()` | `boolean` | 마지막 페이지 여부 |
+| `hasNext()` | `boolean` | 다음 페이지 존재 여부 |
+| `hasPrevious()` | `boolean` | 이전 페이지 존재 여부 |
+| `isEmpty()` | `boolean` | 데이터가 하나도 없는지 여부 |
+
+**Page.map() 메서드의 동작**
+
+```java
+Page<Article> articlePage = articleRepository.findAll(pageable);
+Page<ArticleDto> dtoPage = articlePage.map(i -> mapToArticleDto(i));
+```
+
+| 단계 | 동작 | 설명 |
+|------|------|------|
+| 1 | DB 조회 | `Page<Article>` 반환 (데이터 + 메타 정보) |
+| 2 | `.map()` 실행 | 내부 콘텐츠만 변환 (메타 정보는 유지) |
+| 3 | DTO 변환 | 각 `Article` → `ArticleDto` 변환 |
+| 4 | 결과 반환 | `Page<ArticleDto>` (변환된 데이터 + 동일한 메타 정보) |
+
+**예시: 전체 95개 게시글, 3페이지 요청 (페이지당 10개)**
+
+```
+Repository 반환:
+Page<Article> {
+  content: [Article 21, Article 22, ..., Article 30]  // 10개
+  totalElements: 95
+  totalPages: 10
+  number: 2
+  size: 10
+}
+         ↓ .map(i -> mapToArticleDto(i))
+Service 반환:
+Page<ArticleDto> {
+  content: [ArticleDto 21, ArticleDto 22, ..., ArticleDto 30]  // 10개
+  totalElements: 95  ← 메타 정보는 그대로
+  totalPages: 10
+  number: 2
+  size: 10
+}
+```
+
+**Page.map()의 특징**
+
+- `Optional.map()`과 동일한 패턴입니다.
+- **메타 정보는 변경하지 않고**, 내부 콘텐츠만 변환합니다.
+- 페이징 정보를 유지하면서 Entity → DTO 변환이 가능합니다.
+
+#### article-list.html (2단계 - 페이지네이션 버전)
+
+```html
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"   
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security"
+      th:replace="~{/base-layout::layout(~{::section})}">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<section th:fragment="section">
+    <table class="table">
+        <thead>
+            <tr>
+                <td>#</td>
+                <td>제목</td>
+                <td>작성자</td>
+                <td>수정날짜</td>
+            </tr>
+        </thead>
+
+        <tbody>
+        <tr th:each="article : ${page.content}">
+            <td th:text="${article.id}"></td>
+            <td>
+                <a th:href="@{/article/content (id=${article.id})}" 
+                   th:text="${article.title}"></a>
+            </td>
+            <td th:text="${article.name}"></td>
+            <td th:text="${#temporals.format(article.updated,'yyyy-MM-dd HH:mm:ss')}"></td>
+        </tr>
+        </tbody>
+    </table>
+
+    <!-- 페이지네이션 바 -->
+    <nav th:if="${!page.isEmpty()}">
+        <ul th:with="start=${(page.number div page.size) * page.size},
+                     last=${start + (page.size - 1) > (page.totalPages)-1 ? 
+                            (page.totalPages)-1 : start + (page.size - 1)}" 
+            class="pagination">
+            
+            <!-- 이전 페이지 버튼 -->
+            <li class="page-item" th:classappend="${page.isFirst()} ? 'disabled'">
+                <a class="page-link" th:href="@{/article/list(page=${(page.number)-1})}">&laquo;</a>
+            </li>
+
+            <!-- 페이지 번호 목록 -->
+            <li th:each="pageNumber : ${#numbers.sequence(start, last)}" 
+                class="page-item" 
+                th:classappend="${page.number == pageNumber} ? 'active'">
+                <a th:href="@{/article/list(page=${pageNumber})}" 
+                   th:text="${pageNumber + 1}" 
+                   class="page-link"></a>
+            </li>
+
+            <!-- 다음 페이지 버튼 -->
+            <li class="page-item" th:classappend="${page.isLast()} ? 'disabled'">
+                <a class="page-link" th:href="@{/article/list(page=${(page.number)+1})}">&raquo;</a>
+            </li>
+        </ul>
+    </nav>
+
+    <!-- 글쓰기 버튼 (로그인한 사용자만) -->
+    <a th:href="@{/article/add}" sec:authorize="isAuthenticated()" class="btn btn-primary">
+        글쓰기
+    </a>
+</section>
+</body>
+</html>
+```
+
+#### 페이지네이션 UI 구성 요소
+
+**1. 데이터 테이블**
+
+```html
+<tr th:each="article : ${page.content}">
+```
+
+- `${page.content}`: `Page` 객체에서 현재 페이지의 데이터 목록을 가져옵니다.
+- 이전 버전의 `${articles}` 대신 `${page.content}`를 사용합니다.
+
+**2. 페이지네이션 바 표시 조건**
+
+```html
+<nav th:if="${!page.isEmpty()}">
+```
+
+- `page.isEmpty()`: 현재 페이지에 데이터가 하나도 없는지 확인합니다.
+- `!page.isEmpty()`: 데이터가 하나라도 있을 때만 페이지네이션 바를 표시합니다.
+- 게시글이 0개일 때 빈 페이지네이션 바가 표시되는 것을 방지합니다.
+
+**3. th:with - 임시 변수 선언**
+
+```html
+<ul th:with="start=${(page.number div page.size) * page.size},
+             last=${start + (page.size - 1) > (page.totalPages)-1 ? 
+                    (page.totalPages)-1 : start + (page.size - 1)}" 
+    class="pagination">
+```
+
+**th:with의 역할**
+
+- **임시 지역 변수**를 선언합니다.
+- `<ul>` 태그와 그 안의 모든 자식 태그에서 사용할 수 있습니다.
+- 복잡한 계산식을 변수에 담아 코드를 간결하게 만듭니다.
+
+**start 변수 계산**
+
+```
+start = (page.number div page.size) * page.size
+```
+
+`start`는 **현재 페이지 그룹의 첫 번째 페이지 인덱스**를 계산합니다.
+
+| 단계 | 설명 | 예시 (현재 3페이지, 그룹 크기 5) |
+|------|------|-----------------------------------|
+| `page.number` | 현재 페이지 번호 | `2` (0부터 시작) |
+| `div page.size` | 그룹 크기로 나눈 몫 | `2 div 5 = 0` |
+| `* page.size` | 몫에 그룹 크기를 곱함 | `0 * 5 = 0` |
+| **결과** | 그룹의 시작 인덱스 | `0` (0~4 그룹) |
+
+**div 연산자**
+
+```java
+// Thymeleaf의 div는 정수 나눗셈 (몫만 반환)
+2 div 5 = 0
+7 div 5 = 1
+12 div 5 = 2
+```
+
+**페이지 그룹 예시** (5개씩 묶을 때)
+
+| 그룹 | 포함 페이지 | start 값 |
+|------|------------|----------|
+| 1그룹 | 0, 1, 2, 3, 4 | 0 |
+| 2그룹 | 5, 6, 7, 8, 9 | 5 |
+| 3그룹 | 10, 11, 12, 13, 14 | 10 |
+
+**last 변수 계산**
+
+```
+last = start + (page.size - 1) > (page.totalPages)-1 ? 
+       (page.totalPages)-1 : start + (page.size - 1)
+```
+
+`last`는 **현재 페이지 그룹의 마지막 페이지 인덱스**를 계산합니다.
+
+| 부분 | 역할 |
+|------|------|
+| `start + (page.size - 1)` | 그룹의 예상 끝 인덱스 (예: 0 + 4 = 4) |
+| `(page.totalPages) - 1` | 전체 페이지의 마지막 인덱스 (예: 17페이지 → 16) |
+| `조건 ? 참 : 거짓` | 두 값 중 작은 값을 선택 |
+
+**조건부 연산자 동작**
+
+```
+조건: start + 4 > totalPages - 1 ?
+     (그룹 끝 예상이 전체 끝을 넘는가?)
+
+참일 때: totalPages - 1 반환 (전체 페이지의 마지막)
+거짓일 때: start + 4 반환 (그룹의 끝)
+```
+
+**예시 1: 전체 17페이지, 0그룹**
+
+```
+start = 0
+그룹 끝 예상 = 0 + 4 = 4
+전체 끝 = 17 - 1 = 16
+4 > 16 ? → 거짓
+last = 4
+```
+
+결과: 0~4 페이지 표시 (5개)
+
+**예시 2: 전체 17페이지, 15번째 페이지 (3그룹)**
+
+```
+start = 15
+그룹 끝 예상 = 15 + 4 = 19
+전체 끝 = 17 - 1 = 16
+19 > 16 ? → 참
+last = 16
+```
+
+결과: 15~16 페이지만 표시 (2개)
+
+**처음 시도했던 코드 (오류 발생)**
+
+```html
+<!-- ❌ 오류 코드 -->
+<ul th:with="start=${T(java.lang.Math).floor((page.number/page.size))*page.size}, 
+             last=${T(java.lang.Math).min((start+(page.size)-1), (page.totalPages)-1)}">
+```
+
+**발생했던 오류**
+
+```
+EL1031E: Problem locating method min(java.lang.Double, java.lang.Integer)
+```
+
+**오류 원인**
+
+| 문제 | 설명 |
+|------|------|
+| 나눗셈 결과 타입 | `page.number / page.size`는 `Double`을 반환합니다. |
+| `Math.min()` 호출 | `min(Double, Integer)`를 찾지 못합니다. |
+| 타입 불일치 | SpEL이 적절한 메서드를 찾지 못해 오류가 발생합니다. |
+
+**해결 방법**
+
+```html
+<!-- ✅ 해결된 코드 -->
+<ul th:with="start=${(page.number div page.size) * page.size},
+             last=${start + (page.size - 1) > (page.totalPages)-1 ? 
+                    (page.totalPages)-1 : start + (page.size - 1)}">
+```
+
+**해결 포인트**
+
+| 변경 사항 | 효과 |
+|----------|------|
+| `/` → `div` | 정수 나눗셈으로 타입 안전성 확보 |
+| `Math.min()` → `? :` | Thymeleaf 내장 조건 연산자 사용 |
+| `T(java.lang.Math)` 제거 | 외부 클래스 호출 없이 순수 Thymeleaf 로직으로 해결 |
+
+**4. 이전 페이지 버튼**
+
+```html
+<li class="page-item" th:classappend="${page.isFirst()} ? 'disabled'">
+    <a class="page-link" th:href="@{/article/list(page=${(page.number)-1})}">&laquo;</a>
+</li>
+```
+
+**th:classappend 분석**
+
+| 구성 요소 | 역할 |
+|----------|------|
+| `class="page-item"` | 기본 클래스 (항상 적용) |
+| `th:classappend` | 조건에 따라 추가 클래스를 붙입니다 |
+| `${page.isFirst()}` | 현재 페이지가 첫 페이지인지 확인 |
+| `? 'disabled'` | 첫 페이지면 `disabled` 클래스 추가 |
+
+**동작 결과**
+
+```
+첫 페이지(0)일 때:
+<li class="page-item disabled">  ← 비활성화
+    <a>...</a>
+</li>
+
+다른 페이지일 때:
+<li class="page-item">  ← 활성화
+    <a>...</a>
+</li>
+```
+
+**링크 URL**
+
+```html
+th:href="@{/article/list(page=${(page.number)-1})}"
+```
+
+- 현재 페이지 번호에서 1을 뺀 페이지로 이동합니다.
+- 예: 3페이지에서 클릭 → `/article/list?page=2`
+
+**5. 페이지 번호 목록**
+
+```html
+<li th:each="pageNumber : ${#numbers.sequence(start, last)}" 
+    class="page-item" 
+    th:classappend="${page.number == pageNumber} ? 'active'">
+    <a th:href="@{/article/list(page=${pageNumber})}" 
+       th:text="${pageNumber + 1}" 
+       class="page-link"></a>
+</li>
+```
+
+**#numbers.sequence() 사용법**
+
+```
+#numbers.sequence(시작, 끝)
+```
+
+| 메서드 | 반환 타입 | 설명 |
+|--------|----------|------|
+| `#numbers.sequence(start, last)` | `List<Integer>` | `start`부터 `last`까지의 정수 목록을 생성합니다 (양 끝 포함) |
+
+**예시**
+
+```java
+#numbers.sequence(0, 4)  → [0, 1, 2, 3, 4]
+#numbers.sequence(5, 9)  → [5, 6, 7, 8, 9]
+#numbers.sequence(15, 16) → [15, 16]
+```
+
+**반복문 동작**
+
+```
+start = 0, last = 4일 때:
+
+pageNumber = 0 → <li>1</li>
+pageNumber = 1 → <li>2</li>
+pageNumber = 2 → <li>3</li>
+pageNumber = 3 → <li>4</li>
+pageNumber = 4 → <li>5</li>
+```
+
+**현재 페이지 강조**
+
+```html
+th:classappend="${page.number == pageNumber} ? 'active'"
+```
+
+- `page.number`: 현재 보고 있는 페이지 번호 (예: 2)
+- `pageNumber`: 반복 중인 페이지 번호 (0, 1, 2, 3, 4)
+- 일치하면 `active` 클래스를 추가하여 배경색 강조
+
+**화면 표시 vs 서버 전달**
+
+```html
+th:text="${pageNumber + 1}"  ← 화면에는 1부터 표시
+th:href="@{/article/list(page=${pageNumber})}"  ← 서버에는 0부터 전달
+```
+
+| 페이지 인덱스 | 화면 표시 | 서버 파라미터 |
+|---------------|----------|--------------|
+| 0 | `1` | `page=0` |
+| 1 | `2` | `page=1` |
+| 2 | `3` | `page=2` |
+
+**6. 다음 페이지 버튼**
+
+```html
+<li class="page-item" th:classappend="${page.isLast()} ? 'disabled'">
+    <a class="page-link" th:href="@{/article/list(page=${(page.number)+1})}">&raquo;</a>
+</li>
+```
+
+- `page.isLast()`: 마지막 페이지 여부 확인
+- 마지막 페이지면 `disabled` 클래스 추가
+- 링크는 현재 페이지 + 1
+
+#### 페이지네이션 전체 동작 흐름
+
+```
+1. 사용자: /article/list?page=2 요청
+   ↓
+2. Controller: Pageable 객체 생성 (page=2, size=10, sort=id,desc)
+   ↓
+3. Service: articleRepository.findAll(pageable)
+   ↓
+4. Repository: 
+   SELECT * FROM article 
+   ORDER BY id DESC 
+   LIMIT 10 OFFSET 20
+   ↓
+5. Repository: Page<Article> 반환 (21~30번 게시글 + 메타 정보)
+   ↓
+6. Service: Page<ArticleDto>로 변환
+   ↓
+7. Controller: Model에 page 저장
+   ↓
+8. View: Thymeleaf 렌더링
+   - th:with로 start=0, last=4 계산
+   - 0~4 페이지 번호 버튼 생성
+   - 현재 페이지(2)에 active 클래스
+   ↓
+9. 브라우저: 페이지네이션 UI 표시
+```
+
+#### 페이지네이션 결과 화면
+
+**게시글 목록 테이블**
+
+```
+#  제목              작성자  수정날짜
+21 게시글 21         홍혜창  2025-11-08 17:53:35
+22 게시글 22         윤서준  2025-11-08 17:53:35
+...
+30 게시글 30         김우현  2025-11-08 17:53:35
+```
+
+**페이지네이션 바**
+
+```
+« [1] [2] [3] [4] [5] »
+     ↑
+   현재 페이지 (active)
+```
+
+- `«`: 이전 페이지 (첫 페이지면 비활성화)
+- `[1]~[5]`: 페이지 번호 (현재 페이지 강조)
+- `»`: 다음 페이지 (마지막 페이지면 비활성화)
+
+---
+
+## 4.3 페이지네이션 핵심 개념 정리
+
+### Pageable 인터페이스
+
+**생성 방법**
+
+| 방법 | 코드 | 사용 시기 |
+|------|------|----------|
+| 어노테이션 | `@PageableDefault` | 컨트롤러에서 기본값 설정 |
+| 수동 생성 | `PageRequest.of(page, size, sort)` | 프로그래밍 방식으로 생성 |
+| URL 파라미터 | `?page=2&size=20&sort=title,asc` | 클라이언트가 직접 지정 |
+
+**Pageable 처리 흐름**
+
+```
+URL 파라미터 ─┐
+             ├─> PageableHandlerMethodArgumentResolver
+@PageableDefault─┘         ↓
+                    Pageable 객체 생성
+                          ↓
+                    Controller 메서드 주입
+```
+
+### Page 인터페이스
+
+**Page vs List 비교**
+
+| 항목 | List<T> | Page<T> |
+|------|---------|---------|
+| 데이터 | ✅ 포함 | ✅ 포함 (`getContent()`) |
+| 전체 개수 | ❌ 없음 | ✅ `getTotalElements()` |
+| 페이지 정보 | ❌ 없음 | ✅ `getTotalPages()`, `getNumber()` 등 |
+| 다음/이전 여부 | ❌ 없음 | ✅ `hasNext()`, `hasPrevious()` |
+
+**Page 객체 활용**
+
+```java
+Page<ArticleDto> page = ...;
+
+// 데이터 접근
+List<ArticleDto> articles = page.getContent();
+
+// 페이지네이션 정보
+int totalPages = page.getTotalPages();
+long totalElements = page.getTotalElements();
+boolean hasNext = page.hasNext();
+```
+
+### Thymeleaf 페이지네이션 패턴
+
+**필수 구성 요소**
+
+```html
+<!-- 1. 데이터 표시 -->
+<tr th:each="item : ${page.content}">
+    ...
+</tr>
+
+<!-- 2. 페이지 그룹 계산 -->
+<ul th:with="start=..., last=...">
+    
+    <!-- 3. 이전 버튼 -->
+    <li th:classappend="${page.isFirst()} ? 'disabled'">
+        <a th:href="@{/path(page=${page.number - 1})}">이전</a>
+    </li>
+    
+    <!-- 4. 페이지 번호 -->
+    <li th:each="pageNumber : ${#numbers.sequence(start, last)}"
+        th:classappend="${page.number == pageNumber} ? 'active'">
+        <a th:href="@{/path(page=${pageNumber})}" 
+           th:text="${pageNumber + 1}">번호</a>
+    </li>
+    
+    <!-- 5. 다음 버튼 -->
+    <li th:classappend="${page.isLast()} ? 'disabled'">
+        <a th:href="@{/path(page=${page.number + 1})}">다음</a>
+    </li>
+</ul>
+```
+
+### 성능 비교
+
+**전체 조회 vs 페이지네이션**
+
+| 지표 | 전체 조회 (10,000개) | 페이지네이션 (10개씩) |
+|------|---------------------|---------------------|
+| DB 조회 시간 | 500ms | 10ms |
+| 메모리 사용 | 50MB | 500KB |
+| 네트워크 전송 | 5MB | 50KB |
+| 응답 속도 | 2초 | 0.1초 |
+| UX | 긴 스크롤 필요 | 직관적인 탐색 |
+
+---
+
+## 4.4 학습 포인트 정리
+
+### 새로 배운 개념
+
+1. **Thymeleaf 프래그먼트 시스템**
+   - `th:fragment`로 재사용 가능한 레이아웃 정의
+   - `th:replace`로 레이아웃 적용 및 내용 전달
+   - 매개변수를 통한 동적 콘텐츠 삽입
+
+2. **Pageable과 Page**
+   - Spring Data JPA의 페이징 처리 자동화
+   - `@PageableDefault`로 기본값 설정
+   - `Page.map()`을 통한 Entity → DTO 변환
+
+3. **Thymeleaf 고급 기법**
+   - `th:with`로 임시 변수 선언
+   - `#numbers.sequence()`로 연속된 숫자 생성
+   - `th:classappend`로 조건부 클래스 추가
+   - `div` 연산자로 정수 나눗셈
+
+4. **날짜/시간 처리**
+   - `#temporals`로 `LocalDateTime` 포맷팅
+   - 레거시(`#calendars`) vs 모던(`#temporals`) 구분
+
+### 트러블슈팅 경험
+
+| 문제 | 원인 | 해결 방법 |
+|------|------|----------|
+| 드롭다운 작동 안 함 | `bootstrap.min.js` 사용 | `bootstrap.bundle.min.js`로 변경 |
+| 날짜 포맷 오류 | `#calendars` 사용 | `#temporals`로 변경 |
+| `Math.min()` 오류 | 타입 불일치 | 조건부 연산자(`? :`)로 대체 |
+
+### 전체 데이터 흐름
+
+```
+[Client] ── GET /article/list?page=2 ──> [Controller]
+                                              ↓
+                                         Pageable 생성
+                                         (page=2, size=10)
+                                              ↓
+[Client] <── HTML (페이지네이션) ── [View] <── [Service]
+                                              ↓
+                                         Repository.findAll(pageable)
+                                              ↓
+                                         [Database]
+                                         SELECT ... LIMIT 10 OFFSET 20
+```
+
+이제 게시글 목록을 효율적으로 표시하는 기능이 완성되었습니다. 다음 단계에서는 게시글 상세 조회, 작성, 수정, 삭제 기능을 구현할 것입니다.
 
 
 
