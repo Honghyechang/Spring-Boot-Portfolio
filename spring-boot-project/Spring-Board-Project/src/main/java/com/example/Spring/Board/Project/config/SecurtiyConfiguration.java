@@ -84,6 +84,8 @@ public class SecurtiyConfiguration {
 
                 // 2. CSS, JS, Images 등 Spring Boot의 일반적인 정적 리소스 경로 무시
                 .requestMatchers(PathRequest.toStaticResources().atCommonLocations());
+//                .requestMatchers("/image/**");
+
     }
 
 
