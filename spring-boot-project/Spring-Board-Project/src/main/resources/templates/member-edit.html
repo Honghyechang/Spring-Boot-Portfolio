@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security"
+
+      th:replace="~{/base-layout::layout(  ~{::section}  )}">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<section th:fragment="section">
+    <h1>회원 정보 수정하기</h1>
+
+    <form th:object="${member}" th:action="@{/member/edit}" method="post">
+        <input type="hidden" th:field="*{id}">
+        <div class="mb-3">
+        <label class="form-label">이름</label>
+        <input class="form-control" type="text" th:field="*{name}">
+        <p th:if="${#fields.hasErrors('name')}" th:errors="*{name}" class="text-danger"></p>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">이메일</label>
+            <input type="text" th:field="*{email}" class="form-control-plaintext" readonly>
+            <p th:if="${#fields.hasErrors('email')}" th:errors="*{email}" class="text-danger"></p>
+        </div>
+
+        <button type="submit" class="btn btn-primary">수정</button>
+    </form>
+
+</section>
+
+</body>
+</html>
+

@@ -111,5 +111,3 @@ public class HomeController {
 
 }
 
-
-//fragment를 사용하여 레이아웃을 만들것이다.

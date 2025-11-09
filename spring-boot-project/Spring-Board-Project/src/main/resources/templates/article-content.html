@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+
+<html lang="en" xmlns:th="http://www.thymeleaf.org" xmlns:sec="http://www.thymeleaf.org/extras/spring-security"
+
+      th:replace="~{/base-layout::layout(  ~{::section}  )}" >
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<section th:fragment="section">
+
+    <h1>게시판</h1>
+
+    <table class="table">
+        <tbody>
+        <tr>
+            <td style="width: 20%;">#</td>
+            <td th:text="${article.id}"></td>
+        </tr>
+
+        <tr>
+            <td>제목</td>
+            <td th:text="${article.title}"></td>
+        </tr>
+
+        <tr>
+            <td>내용</td>
+            <td th:text="${article.description}"></td>
+        </tr>
+
+        <tr>
+            <td>글쓴이</td>
+            <td th:text="${article.name}"></td>
+        </tr>
+
+        <tr>
+            <td>글쓴일</td>
+            <td th:text="${#temporals.format(article.created,'yyyy-MM-dd HH:mm:ss')}"></td>
+        </tr>
+
+        <tr>
+            <td>수정일</td>
+            <td th:text="${#temporals.format(article.updated,'yyyy-MM-dd HH:mm:ss')}"></td>
+        </tr>
+        </tbody>
+    </table>
+    <a th:href="@{/article/list}" class="btn btn-info btn-sm">목록</a>
+
+    <th:block sec:authorize="isAuthenticated()" th:if="${#authentication.principal.memberId == article.memberId}">
+        <a th:href="@{/article/edit(id=${article.id})}"  class="btn btn-warning btn-sm">수정</a>
+        <a th:href="@{/article/delete(id=${article.id})}" class="btn btn-danger btn-sm">삭제</a>
+    </th:block>
+
+
+</section>
+</body>
+</html>
+
+
+
+<!--sec:authorize="isAuthenticated()" (높은 우선순위): 사용자가 로그인했는지 먼저 확인합니다. 로그인하지 않았다면 이 블록 전체가 HTML에서 제거됩니다.-->
+
+<!--th:if="..." (다음 순서): (로그인된 경우에만) #authentication.principal.memberId와 article.memberId를 비교하여 현재 사용자가 게시글의 소유자인지 최종 판단합니다.-->

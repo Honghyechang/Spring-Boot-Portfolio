@@ -3,12 +3,17 @@ package com.example.Spring.Board.Project.service;
 import com.example.Spring.Board.Project.dto.MemberDto;
 import com.example.Spring.Board.Project.dto.MemberForm;
 import com.example.Spring.Board.Project.model.Member;
+import com.example.Spring.Board.Project.repository.ArticleRepository;
 import com.example.Spring.Board.Project.repository.AuthorityRepository;
 import com.example.Spring.Board.Project.repository.MemberRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.stream.Stream;
 
@@ -17,6 +22,7 @@ import java.util.stream.Stream;
 public class MemberService {
     private final MemberRepository memberRepository;
     private final PasswordEncoder passwordEncoder;
+    private final ArticleRepository articleRepository;
     private final AuthorityRepository authorityRepository;
 
     public MemberDto mapToMemberDto(Member member) {
@@ -63,4 +69,27 @@ public class MemberService {
         memberRepository.save(member);
     }
 
+
+    public Page<MemberDto> findAll(Pageable pageable){
+        Page<Member> member=memberRepository.findAll(pageable);
+        return member.map(i->mapToMemberDto(i));
+    }
+
+
+    public MemberDto update(MemberForm memberForm) {
+        Member member=memberRepository.findById(memberForm.getId()).orElseThrow();
+        member.setEmail(memberForm.getEmail());
+        member.setName(memberForm.getName());
+        memberRepository.save(member);
+        return mapToMemberDto(member);
+    }
+
+    @Transactional
+    public void delete(Long id)
+    {
+        //맴버를 삭제하기 전에 맴버가 작성한 글을 삭제한다.
+        Member member=memberRepository.findById(id).orElseThrow();
+        articleRepository.deleteAllByMember(member);
+        memberRepository.deleteById(id);
+    }
 }

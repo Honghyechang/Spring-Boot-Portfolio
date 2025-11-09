@@ -1,22 +1,30 @@
 package com.example.Spring.Board.Project.controller;
 
 import com.example.Spring.Board.Project.dto.ArticleDto;
+import com.example.Spring.Board.Project.dto.ArticleForm;
+import com.example.Spring.Board.Project.model.Article;
+import com.example.Spring.Board.Project.model.Member;
+import com.example.Spring.Board.Project.model.MemberUserDetails;
 import com.example.Spring.Board.Project.service.ArticleService;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.hibernate.sql.Update;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.data.web.PageableHandlerMethodArgumentResolver;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.validation.BindingResult;
+import org.springframework.web.bind.annotation.*;
 import org.thymeleaf.Thymeleaf;
 
 import javax.swing.*;
 import java.util.List;
+import java.util.concurrent.Flow;
 
 @Controller
 @RequestMapping("/article")
@@ -27,14 +35,6 @@ public class ArticleController {
     private final ArticleService articleService;
 
 
-//    @RequestMapping("/list")
-//    public String getArticleList(Model model){
-//        List<ArticleDto> articles=articleService.findAll();
-//        model.addAttribute("articles", articles);
-//        return "article-list";
-//        //return "article-list-test";
-//    }
-
     @RequestMapping("/list")
     public String getArticleList(@PageableDefault(size = 10,sort = "id",direction = Sort.Direction.DESC) Pageable pageable, Model model){
         Page<ArticleDto> page=articleService.findAll(pageable);
@@ -42,95 +42,361 @@ public class ArticleController {
         return "article-list";
     }
 
+    @RequestMapping("/content")
+    public String getContent(@RequestParam("id")Long id,Model model){
+        ArticleDto articleDto=articleService.findById(id);
+        model.addAttribute("article",articleDto);
+        return "article-content";
+    }
+
+
+    @GetMapping("/add")
+    public String getAdd(@ModelAttribute("article")ArticleForm articleForm){
+        return "article-add";
+    }
+
+    @PostMapping("/add")
+    public String add(@Valid @ModelAttribute("article")ArticleForm articleForm, BindingResult bindingResult , @AuthenticationPrincipal MemberUserDetails memberUserDetails){
+        if(articleForm.getTitle().equals("T발")){
+            bindingResult.rejectValue("title","SlangDetcted","욕설을 사용하지 마세요.");
+        }
+
+        if(articleForm.getDescription().equals("T발")){
+            bindingResult.rejectValue("description","SlangDetcted","욕설을 사용하지 마세요.");
+        }
+
+        if(bindingResult.hasErrors()){
+            return "article-add";
+        }
+
+        articleService.add(articleForm,memberUserDetails);
+        return "redirect:/article/list";
+
+
+    }
+
+
+    //수정하기
+    @GetMapping("/edit")
+    public String getEdit(@RequestParam("id")Long id,@ModelAttribute("article") ArticleForm articleForm){
+        ArticleDto articleDto=articleService.findById(id);
+        articleForm.setTitle(articleDto.getTitle());
+        articleForm.setDescription(articleDto.getDescription());
+        articleForm.setId(articleDto.getId());
+        return "article-edit";
+    }
+
+    @PostMapping("/edit")
+    public String editArticle(@Valid @ModelAttribute("article") ArticleForm articleForm, BindingResult bindingResult){
+
+        if(articleForm.getTitle().equals("T발")){
+            bindingResult.rejectValue("title","SlangDetcted","욕설을 사용하지 마세요.");
+        }
+
+        if(articleForm.getDescription().equals("T발")){
+            bindingResult.rejectValue("description","SlangDetcted","욕설을 사용하지 마세요.");
+        }
+
+        if(bindingResult.hasErrors()){
+            return "article-edit";
+        }
+
+        articleService.update(articleForm);
+        return "redirect:/article/list";
+
+    }
+
+
+    //삭제하기
+    @GetMapping("/delete")
+    public String delete(@RequestParam("id")Long id){
+        articleService.delete(id);
+        return "redirect:/article/list";
+    }
+
 
 
 }
 
-//@Controller
-//@RequestMapping("/article")
-//public class ArticleController {
+////상세 내용 보여주기
+//@RequestMapping("/content")
+//public String getContent(@RequestParam("id")Long id,Model model){
+//    ArticleDto articleDto=articleService.findById(id);
+//    model.addAttribute("article",articleDto);
+//    return "article-content";
+//}
+
+//public ArticleDto findById(Long id){
+//    Article article=articleRepository.findById(id).orElseThrow();
+//    return mapToArticleDto(article);
+//}
+
+//
+////게시글 작성하기
+///article/add get으로 오면 단순히 화면을 초기화해서 보여주기 앞서 배웠듯이 get 이고 ModelAttribute이용해서 초기화한 데이터 모델에 담고 단순히 보여주기
+//
+//@GetMapping("/add")
+//public String getAdd(@ModelAttribute("article")ArticleForm articleForm){
+//    return "article-add";
+//}
 //
 //
-//    @RequestMapping("/list")
-//    public String getArticleList(){
-//        return "article-list-test";
+//<!DOCTYPE html>
+//
+//<html lang="en" xmlns:th="http://www.thymeleaf.org"
+//xmlns:sec="http://www.thymeleaf.org/extras/spring-security"
+//
+//th:replace="~{/base-layout::layout(  ~{::section}  )}"
+//        >
+//<head>
+//    <meta charset="UTF-8">
+//    <title>Title</title>
+//</head>
+//<body>
+//<section th:fragment="section">
+//    <h1>게시판</h1>
+//    <form th:object="${article}" th:action="@{/article/add}" method="post">
+//        <div class="mb-3">
+//        <label  class="form-label">제목</label>
+//        <input th:type="text" th:field="*{title}" class="form-control">
+//        <p th:if="${#fields.hasErrors('title')}" th:errors="*{title}" class="text-danger"></p>
+//        </div>
+//        <div class="mb-3">
+//        <label class="form-label">내용</label>
+//        <textarea th:field="*{description}" class="form-control">
+//        </textarea>
+//        <p th:if="${#fields.hasErrors('description')}" th:errors="*{description}" class="text-danger"></p>
+//        </div>
+//        <button type="submit" class="btn btn-primary">저장</button>
+//    </form>
+//</section>
+//
+//</body>
+//</html>
+//
+//
+//
+//화면 보여주고 /article/add post로 넘겨서 현재 , MemnberUserDetails와 ArticleForm을 받아오기, 이떄 앞서배운 BindingResult를 사용하기
+//
+//@PostMapping("/add")
+//public String add(@Valid @ModelAttribute("article")ArticleForm articleForm, BindingResult bindingResult , @AuthenticationPrincipal MemberUserDetails memberUserDetails){
+//    if(articleForm.getTitle().equals("T발")){
+//        bindingResult.rejectValue("title","SlangDetcted","욕설을 사용하지 마세요.");
 //    }
+//
+//    if(articleForm.getDescription().equals("T발")){
+//        bindingResult.rejectValue("description","SlangDetcted","욕설을 사용하지 마세요.");
+//    }
+//
+//    if(bindingResult.hasErrors()){
+//        return "article-add";
+//    }
+//
+//    articleService.add(articleForm,memberUserDetails);
+//    return "redirect:/article/list";
+//
+//
 //}
-//게시글 목록 화면 만들기
-//article-list-test 테스트에서 -> article-list.html 실제 게시글 목록 페이지를 보여주는 페이지를 구현하자.
-
-
 //
-//@RequestMapping("/list")
-//public String getArticleList(@PageableDefault(size = 10,sort = "id",direction = Sort.Direction.DESC) Pageable pageable, Model model){
-//    Page<ArticleDto> page=articleService.findAll(pageable);
-//    model.addAttribute("page", page);
-//    return "article-list";
+//
+//
+//AricleService  public ArticleDto add(ArticleForm articleForm, MemberUserDetails memberUserDetails){
+//
+//
+//    Member member= memberRepository.findById(memberUserDetails.getMemberId()).orElseThrow();
+//
+//    //ArticleForm -> Article
+//    Article article=Article.builder()
+//            .title(articleForm.getTitle())
+//            .description(articleForm.getDescription())
+//            .member(member)
+//            .build();
+//    articleRepository.save(article);
+//    return mapToArticleDto(article);
+//
 //}
-//Spring MVC에서 파라미터가 Pageable 객체로 사용되는지 아니면 단순한 문자열/숫자로 사용되는지를 판단하는 기준에 대한 내용입니다.결론부터 말씀드리면, 매개변수에 Pageable 타입이 선언되어 있는지를 보고 판단합니다.🎯 getArticleList 메서드 상세 분석주신 컨트롤러 메서드 코드를 상세하게 분석하고, 파라미터 처리 원리를 설명해 드리겠습니다.Java@RequestMapping("/list")
-//public String getArticleList(@PageableDefault(size = 10,sort = "id",direction = Sort.Direction.DESC) Pageable pageable, Model model){
-//    Page<ArticleDto> page=articleService.findAll(pageable);
-//    model.addAttribute("page", page);
-//    return "article-list";
+//
+////즉, 조건에 맞게 문제 없으면 즉, BindingResult에 문제없으면 만들기, 문제있으면 현재 문제있느 상태 articleForm, bingResult 결과 보내주기
+//
+//최종흐름
+//네, 알겠습니다. 새로운 게시글을 작성하고 처리하는 \*\*전체적인 웹 애플리케이션의 흐름(Flow)\*\*을 요청하신 대로 깔끔하게 순서와 과정별 핵심 동작으로 정리해 드리겠습니다.
+//
+//이 과정은 **폼 요청(GET)**, **폼 제출 및 검증(POST)**, **서비스 로직 처리**의 3단계로 나뉩니다.
+//
+//        -----
+//
+//        ## 🚀 게시글 작성 기능의 최종 구현 흐름 정리
+//
+//### 1\. 폼 초기화 및 화면 표시 (GET 요청)
+//
+//| 순서 | 위치 | 코드 및 동작 | 핵심 |
+//        | :--- | :--- | :--- | :--- |
+//        | **1. 요청** | 브라우저 | 사용자가 `/article/add` URL로 접근합니다. | |
+//        | **2. Controller** | `@GetMapping("/add")` | `@ModelAttribute("article")ArticleForm articleForm`을 통해 **비어있는 새로운 `ArticleForm` 객체**를 생성하고, 이를 `"article"`이라는 이름으로 모델에 담습니다. | **모델 초기화**: 뷰(Thymeleaf)에서 사용할 폼 객체를 준비합니다. |
+//        | **3. 뷰 반환** | `return "article-add"` | Thymeleaf 템플릿을 반환합니다. | |
+//        | **4. Thymeleaf** | `article-add.html` | `<form th:object="${article}" ...>`를 통해 \*\*빈 `ArticleForm`\*\*과 폼 필드(`*{title}`, `*{description}`)를 연결하고, 초기화된 폼 화면을 사용자에게 보여줍니다. | **폼 렌더링**: 사용자가 데이터를 입력할 준비를 합니다. |
+//
+//        -----
+//
+//        ### 2\. 폼 제출, 검증 및 오류 처리 (POST 요청)
+//
+//사용자가 폼을 작성하고 **저장** 버튼을 클릭하면 이 단계가 시작됩니다.
+//
+//| 순서 | 위치 | 코드 및 동작 | 핵심 |
+//        | :--- | :--- | :--- | :--- |
+//        | **1. 요청** | 브라우저 | 폼 데이터가 `/article/add` URL로 `POST` 방식으로 전송됩니다. | |
+//        | **2. Controller** | `@PostMapping("/add")` | \*\*`@Valid`\*\*가 먼저 실행되어 폼 데이터의 1차 유효성 검증(예: `@NotEmpty`)을 수행하고, 그 결과를 `BindingResult`에 담습니다. | **데이터 수신 및 1차 검증** |
+//        | **3. 추가 검증** | `if(articleForm.getTitle().equals("T발"))` | **개발자가 정의한 추가적인 비즈니스 로직** 검증(예: 욕설 필터링)을 수행하고, 오류 발생 시 `bindingResult.rejectValue(...)`를 통해 오류를 `BindingResult`에 수동으로 추가합니다. | **2차 비즈니스 검증** |
+//        | **4. 오류 판단** | `if(bindingResult.hasErrors())` | `BindingResult`에 \*\*(1차 `@Valid` 오류 + 2차 수동 검증 오류)\*\*가 하나라도 있는지 확인합니다. | |
+//        | **5. 오류 시** | `return "article-add"` | 오류가 있다면, **오류 정보를 담은 현재 `articleForm` 객체**와 \*\*`BindingResult`\*\*를 그대로 뷰로 전달하며 `article-add` 템플릿을 재반환합니다. | **오류 피드백**: 폼이 재로딩되며, `<p th:errors="*{...}">`를 통해 사용자에게 오류 메시지를 보여줍니다. |
+//
+//        -----
+//
+//        ### 3\. 정상 처리 및 DB 저장 (Service 로직)
+//
+//오류가 없어 `bindingResult.hasErrors()`가 `false`일 경우, 서비스 계층으로 이동합니다.
+//
+//        | 순서 | 위치 | 코드 및 동작 | 핵심 |
+//        | :--- | :--- | :--- | :--- |
+//        | **1. 사용자 정보 획득** | `@PostMapping("/add")` | `@AuthenticationPrincipal MemberUserDetails memberUserDetails`를 통해 **현재 로그인된 사용자**의 상세 정보를 가져옵니다. | **로그인 유저 식별** |
+//        | **2. Service 호출** | `articleService.add(...)` | 폼 데이터와 로그인 사용자 정보를 서비스로 전달합니다. | |
+//        | **3. Service 로직** | `ArticleService.add(...)` | 1. `memberRepository.findById(...)`로 **DB에서 Member 엔티티**를 조회합니다. <br> 2. `Article.builder()...build()`를 통해 `ArticleForm` 데이터를 기반으로 **`Article` 엔티티**를 생성합니다. (작성자(`member`) 정보 포함) | **DB 저장 준비** |
+//        | **4. DB 저장** | `articleRepository.save(article)` | 새로 생성된 `Article` 엔티티를 DB에 영구 저장합니다. | **트랜잭션 완료** |
+//        | **5. 리다이렉트** | `return "redirect:/article/list"` | 모든 처리가 성공했으므로, 브라우저에게 게시글 목록 페이지로 이동하라는 명령을 전달합니다. | **새 페이지 이동** |
+
+//네, 요청하신 대로 Spring Boot에서 **유효성 검증(Validation)**을 위해 가장 자주 사용되는 JSR-380 (Bean Validation) 어노테이션들을 핵심 내용과 함께 깔끔하게 정리해 드리겠습니다.이 어노테이션들은 @Valid와 함께 DTO나 폼 객체의 필드에 붙어 데이터의 무결성을 보장하는 데 사용됩니다.🚀 @Valid를 위한 주요 유효성 검증 어노테이션 정리1. 기본 제약 조건 (Null, Empty, Blank)이 세 가지는 데이터를 받기 전 값이 존재하는지 확인하는 데 가장 중요합니다.어노테이션설명 (무엇을 허용하지 않는가?)타입주의 사항@NotNull해당 필드가 **null**인 것을 허용하지 않습니다.모든 타입 (객체, 숫자, 문자열, 리스트 등)문자열의 내용(""나 " ")은 검사하지 않습니다.@NotEmpty**null**이거나 **비어있는 상태("" 또는 size=0)**인 것을 허용하지 않습니다.문자열, 컬렉션, 배열공백(" ")만 있는 문자열은 유효하다고 판단하여 통과시킵니다.@NotBlank**null**이거나, **비어있는 상태("")**이거나, 공백(" ")으로만 이루어진 문자열을 허용하지 않습니다.String 전용입력값에 대한 가장 엄격한 필수 항목 검증입니다.2. 문자열 및 형식 제약 조건어노테이션속성설명주의 사항@Email-입력된 문자열이 유효한 이메일 형식인지 검증합니다.문자열이 null이거나 비어있으면 검증을 통과시킵니다. @NotBlank와 함께 사용하는 것이 일반적입니다.@Sizemin, max문자열의 길이 또는 컬렉션/배열의 요소 개수가 지정된 범위 내에 있는지 검증합니다.null 값은 검사하지 않고 통과시킵니다.@Patternregexp입력된 문자열이 지정된 **정규 표현식(Regular Expression)**과 일치하는지 검증합니다.복잡한 형식 검사나 커스텀 규칙이 필요할 때 사용됩니다.3. 숫자 및 값 범위 제약 조건어노테이션속성설명주의 사항@Minvalue숫자가 지정된 최소값 이상인지 검증합니다.@Maxvalue숫자가 지정된 최대값 이하인지 검증합니다.@Positive-숫자가 양수인지 (0 초과) 검증합니다.@PositiveOrZero-숫자가 양수이거나 0인지 검증합니다.@Negative-숫자가 음수인지 (0 미만) 검증합니다.@NegativeOrZero-숫자가 음수이거나 0인지 검증합니다.4. 날짜/시간 제약 조건어노테이션속성설명주의 사항@Past-날짜가 현재 시점보다 과거인지 검증합니다.@PastOrPresent-날짜가 현재 시점이거나 과거인지 검증합니다.@Future-날짜가 현재 시점보다 미래인지 검증합니다.@FutureOrPresent-날짜가 현재 시점이거나 미래인지 검증합니다.
+
+
+//수정하기
+//내용 작성하기 전에 주의사항
+//네, 요청하신 대로 하나의 `ArticleForm` DTO를 사용하여 **새 글 작성(Create)**과 **기존 글 수정(Update)** 로직을 처리하는 과정과 그에 따른 **주의사항**을 핵심만 추출하여 명확하게 정리해 드리겠습니다.
+//
+//        ---
+//
+//        ## 📝 게시글 폼 (ArticleForm)의 이중 활용 전략
+//
+//`ArticleForm` DTO가 `id` 필드를 포함하고 있기 때문에, 이 필드의 **값 유무**가 현재 작업이 '작성'인지 '수정'인지를 결정하는 핵심 단서가 됩니다.
+//
+//### 1. 새 게시글 작성 (CREATE)
+//
+//이 단계는 DB에 새로운 레코드를 삽입하는 과정입니다.
+//
+//| 단계 | 동작 | `ArticleForm`의 `id` 상태 | 핵심 주의사항 |
+//        | :--- | :--- | :--- | :--- |
+//        | **GET 요청** | **폼 초기화** (`/article/add`) | `id` 필드는 **`null`**로 넘어옵니다. | Controller에서 `@ModelAttribute("article")`로 빈 객체를 생성하여 전달합니다. |
+//        | **POST 제출** | **DB 삽입** (`/article/add`) | `id` 필드는 여전히 **`null`**입니다. | Service 계층에서 `ArticleForm`을 `Article` 엔티티로 변환하여 `save()`하면, DB가 **자동으로 새로운 ID를 생성**합니다. 기존 ID를 사용할 필요가 없으므로 `id`는 무시됩니다. |
+//
+//        ### 2. 기존 게시글 수정 (UPDATE)
+//
+//이 단계는 기존 레코드를 찾아서 내용을 변경하는 과정입니다. `ArticleForm`의 `id` 필드가 **활용되는 지점**입니다.
+//
+//| 단계 | 동작 | `ArticleForm`의 `id` 상태 | 핵심 주의사항 |
+//        | :--- | :--- | :--- | :--- |
+//        | **GET 요청** | **폼 채우기** (`/article/edit?id=5`) | **ID 값(예: `5`)이 필수**로 넘어옵니다. 이 ID로 DB에서 기존 `Article`을 조회합니다. | **가장 중요:** Controller는 DB에서 조회한 `Article`의 내용을 `ArticleForm` 객체에 담아 뷰로 전달해야 합니다. **빈 폼이 아닙니다.** |
+//        | **폼 내부** | **ID 숨기기** | `ArticleForm` 객체에 담긴 ID 값은 사용자에게 보이지 않도록 **숨겨진 필드** (`<input type="hidden">`)로 폼 안에 유지되어야 합니다. | 이 숨겨진 ID가 **'수정할 게시글'**을 식별하는 유일한 열쇠입니다. |
+//        | **POST 제출** | **DB 업데이트** (`/article/edit`) | 폼 제출 시, 숨겨진 필드를 통해 `id` 값(예: `5`)이 **다시 Controller로 전송**됩니다. | **유효성 검증(`@Valid`)** 후, Service 계층에서 이 ID를 사용하여 DB에서 기존 `Article` 엔티티를 찾고, 전송된 내용으로 **업데이트(Dirty Checking) 작업**을 수행합니다. |
+//
+//        ---
+//
+//        ## 💡 최종 결론: ID 필드의 역할
+//
+//`ArticleForm`의 `id` 필드는 **수정(Update) 작업**을 수행할 때 **"나는 DB의 이 게시글(Article\_id)을 수정하고 싶다"**는 것을 서버에 알려주는 **식별자 역할**을 수행합니다.
+//
+//이러한 단일 DTO(Data Transfer Object) 재활용 패턴은 코드를 간결하게 유지하는 데 매우 효과적입니다.
+//
+//코드
+//
+////수정하기
+//@GetMapping("/edit")
+//public String getEdit(@RequestParam("id")Long id,@ModelAttribute("article") ArticleForm articleForm){
+//    ArticleDto articleDto=articleService.findById(id);
+//    articleForm.setTitle(articleDto.getTitle());
+//    articleForm.setDescription(articleDto.getDescription());
+//    articleForm.setId(articleDto.getId());
+//    return "article-edit";
 //}
-//1. 파라미터 처리 원리 (가장 중요한 부분)"매개변수에 Pageable이 써져있구나 ~ 를 보고 아는건가?"네, 맞습니다. 이것이 Spring MVC의 핵심 원리입니다.Spring은 컨트롤러 메서드를 실행하기 전에 파라미터를 처리하는 **ArgumentResolver**라는 시스템을 사용합니다.매개변수 타입Spring의 인식처리 담당 ArgumentResolverPageable특별한 객체**PageableHandlerMethodArgumentResolver**가 담당String, int단순 데이터RequestParamMethodArgumentResolver가 담당Spring은 메서드 시그니처(Pageable pageable)를 보자마자 이 파라미터가 페이징 요청임을 인지하고, URL의 쿼리 파라미터(?page=...&size=...&sort=...)를 가져다가 Pageable 객체로 자동 변환하여 주입합니다.만약 코드가 다음과 같았다면, page는 단순한 int 파라미터로 처리됩니다.Java// Spring이 Pageable 객체를 만들지 않고, 쿼리 파라미터 'page'만 정수형으로 받음.
-//public String getArticleList(
-//        @RequestParam(name = "page", defaultValue = "0") int pageNumber,
-//        Model model) {
-//    // ...
+//
+//@PostMapping("/edit")
+//public String editArticle(@Valid @ModelAttribute("article") ArticleForm articleForm, BindingResult bindingResult){
+//
+//    if(articleForm.getTitle().equals("T발")){
+//        bindingResult.rejectValue("title","SlangDetcted","욕설을 사용하지 마세요.");
+//    }
+//
+//    if(articleForm.getDescription().equals("T발")){
+//        bindingResult.rejectValue("description","SlangDetcted","욕설을 사용하지 마세요.");
+//    }
+//
+//    if(bindingResult.hasErrors()){
+//        return "article-edit";
+//    }
+//
+//    articleService.update(articleForm);
+//    return "redirect:/article/list";
+//
 //}
-//2. @PageableDefault 분석이 어노테이션은 Pageable 객체가 생성될 때 사용자가 값을 보내지 않은 경우를 위한 기본 규칙을 정해줍니다.설정 값의미클라이언트가 생략 시 적용size = 10한 페이지당 10개URL에 size 파라미터가 없으면 10으로 설정sort = "id"id 필드를 기준으로 정렬URL에 sort 파라미터가 없으면 id를 기준으로 정렬direction = Sort.Direction.DESC내림차순 정렬sort 방향이 지정되지 않으면 내림차순(최신순/번호순)으로 설정3. 메서드 내부 동작Pageable pageable 주입: Spring이 URL 파라미터(예: ?page=2)와 @PageableDefault 설정을 기반으로 Pageable 객체(예: 3페이지, ID 내림차순)를 생성하여 주입합니다.articleService.findAll(pageable) 호출: 서비스 계층으로 Pageable 객체를 전달합니다.DB 쿼리 발생: 서비스 계층에서 articleRepository.findAll(pageable)이 실행되고, DB에 **"ID 내림차순으로 2페이지의 10개 데이터"**를 요청합니다.Page<ArticleDto> page 반환: DB에서 가져온 데이터와 메타 정보가 DTO로 변환된 Page 객체가 반환됩니다.model.addAttribute("page", page): Thymeleaf 템플릿에서 사용하기 쉽도록, 반환된 Page 객체를 **page**라는 이름으로 Model에 담아 뷰로 전달합니다.결론: 이 메서드는 완벽하게 페이징 시스템을 구현하고 있으며, Pageable 타입 선언 덕분에 Spring이 모든 파라미터 처리 및 객체 생성을 자동으로 책임지는 구조입니다.
+//
+//
+//
+//articleService
+//public ArticleDto update(ArticleForm articleForm){
+//    Article article=articleRepository.findById(articleForm.getId()).orElseThrow();
+//    article.setTitle(articleForm.getTitle());
+//    article.setDescription(articleForm.getDescription());
+//    articleRepository.save(article);
+//    return mapToArticleDto(article);
+//}
+//
+//article-edit.html
+//        <!DOCTYPE html>
+//
+//<html lang="en" xmlns:th="http://www.thymeleaf.org"
+//xmlns:sec="http://www.thymeleaf.org/extras/spring-security"
+//
+//th:replace="~{/base-layout::layout(  ~{::section}  )}">
+//<head>
+//    <meta charset="UTF-8">
+//    <title>Title</title>
+//</head>
+//<body>
+//<section th:fragment="section">
+//
+//<h1>게시글 수정</h1>
+//    <form th:object="${article}" th:action="@{/article/edit}" method="post">
+//
+//        <input type="hidden" th:field="*{id}">
+//
+//        <div class="mb-3">
+//            <label  class="form-label">제목</label>
+//            <input th:type="text" th:field="*{title}" class="form-control">
+//            <p th:if="${#fields.hasErrors('title')}" th:errors="*{title}" class="text-danger"></p>
+//        </div>
+//        <div class="mb-3">
+//            <label class="form-label">내용</label>
+//            <textarea th:field="*{description}" class="form-control">
+//        </textarea>
+//            <p th:if="${#fields.hasErrors('description')}" th:errors="*{description}" class="text-danger"></p>
+//        </div>
+//        <button type="submit" class="btn btn-primary">저장</button>
+//
+//    </form>
+//</section>
+//
+//</body>
+//</html>
+//
 
-//
-//페이지 번호 (page)를 기본값으로 설정할 수 없는 이유
-//@PageableDefault에서 page 번호를 설정하는 속성이 없는 이유는 다음과 같습니다.
-//
-//Spring의 내장 규칙: Spring Data Web Support는 클라이언트가 page 파라미터를 명시하지 않으면 **자동으로 0 (첫 번째 페이지)**을 기본값으로 사용하도록 설계되어 있습니다.
-//
-//논리적 불필요성: 모든 페이징 시스템은 항상 첫 페이지(0)부터 시작해야 하므로, 개발자가 임의의 다른 페이지(예: 5)를 기본값으로 설정해야 할 논리적인 필요성이 없습니다.
-//
-//따라서 개발자는 page 속성 대신 size, sort, direction만 신경 써서 기본값을 설정하면 됩니다. page는 항상 0으로 시작하거나 클라이언트가 명시적으로 요청한 값이 사용됩니다.
 
+//삭제하기는간단하다
+////삭제하기
+//@GetMapping("/delete")
+//public String delete(@RequestParam("id")Long id){
+//    articleService.delete(id);
+//    return "redirect:/article/list";
+//}
 //
-//네, 맞습니다\! **정확히 파악하셨습니다.**
 //
-//가장 일반적인 게시판 페이지네이션 상황에서는 **`page` 파라미터만 보내주면 됩니다.**
-//
-//        ## 🎯 페이지네이션 링크의 효율성
-//
-//`@PageableDefault`를 컨트롤러에 사용하고 계시기 때문에, Thymeleaf의 페이지네이션 링크는 매우 간결해집니다.
-//
-//### 1\. 나머지 파라미터는 생략 가능
-//
-//`size`, `sort`, `direction`은 컨트롤러 메서드에 `@PageableDefault`로 이미 기본값이 설정되어 있습니다.
-//
-//```java
-//@PageableDefault(size = 10, sort = "id", direction = Sort.Direction.DESC)
-//Pageable pageable
-//```
-//
-//        * \*\*`size` (10), `sort` ("id"), `direction` (DESC)\*\*는 클라이언트가 별도로 요청을 보내지 않으면 서버가 이 기본값을 **고정적으로 사용**합니다.
-//
-//### 2\. `page` 파라미터만 동적으로 전송
-//
-//따라서 사용자가 페이지를 이동할 때, 템플릿은 **달라져야 할 유일한 값**인 페이지 번호만 URL 파라미터로 전송하면 됩니다.
-//
-//```html
-//        <!-- Thymeleaf에서 페이지 번호만 파라미터로 넘기는 예시 -->
-//<a th:href="@{/article/list(page=${i})}" th:text="${i + 1}"></a>
-//        ```
-//
-//만약 사용자가 이 링크를 클릭하여 5페이지(페이지 번호 `4`)를 요청하면, 브라우저는 다음 URL을 보냅니다:
-//
-//$$\text{/article/list?page=4}$$
-//
-//서버는 이 `page=4`를 읽고 나머지 `size=10`과 `sort="id,DESC"`는 기본값으로 채워 `Pageable` 객체를 완성하게 됩니다. 이것이 효율적인 페이징 시스템의 핵심입니다.
-
-
-//
-//Page<T> 객체는 페이징 처리를 위해 설계된 컨테이너인 만큼, 데이터 리스트 외에도 페이지네이션 UI를 만드는 데 필요한 모든 메타 정보를 포함하고 있습니다.컨트롤러에서 model.addAttribute("page", page)로 전달했다고 가정하고, page 객체로부터 Thymeleaf에서 접근할 수 있는 주요 속성들을 상세하게 정리해 드리겠습니다.🚀 Page<T> 객체의 주요 속성 (Thymeleaf 접근법)구분Java 메서드 (내부)Thymeleaf 접근법설명사용 예시 (UI)데이터getContent()${page.content}현재 페이지에 표시할 실제 데이터(게시글 DTO 리스트)입니다.th:each로 테이블 행을 반복할 때 사용됩니다.총계getTotalElements()${page.totalElements}DB에 저장된 전체 레코드(게시글) 수입니다."총 100건"과 같이 표시할 때 사용됩니다.총계getTotalPages()${page.totalPages}전체 페이지의 개수입니다. (페이지네이션 바의 최대 번호)페이지 번호 목록을 순회할 때 최대값으로 사용됩니다.페이지 정보getNumber()${page.number}현재 페이지 번호입니다. (0부터 시작)현재 페이지 버튼에 active 클래스를 부여할 때 사용됩니다.페이지 정보getSize()${page.size}한 페이지당 설정된 데이터 개수입니다.페이지 상태isFirst()${page.first}현재 페이지가 **첫 페이지(0번)**인지 여부 (boolean)입니다.'이전 페이지' 버튼을 비활성화할 때 사용됩니다.페이지 상태isLast()${page.last}현재 페이지가 마지막 페이지인지 여부 (boolean)입니다.'다음 페이지' 버튼을 비활성화할 때 사용됩니다.다음/이전hasNext()${page.hasNext()}다음 페이지가 존재하는지 여부 (boolean)입니다.'다음 페이지' 버튼을 활성화/비활성화할 때 사용됩니다.다음/이전hasPrevious()${page.hasPrevious()}이전 페이지가 존재하는지 여부 (boolean)입니다.'이전 페이지' 버튼을 활성화/비활성화할 때 사용됩니다.정렬 정보getSort()${page.sort}현재 요청에 적용된 정렬 정보입니다.
-//
-//age<T> 인터페이스에는 다음과 같은 메서드가 정의되어 있습니다.Java 메서드Thymeleaf 접근법반환 값의미isEmpty()${page.empty}booleanpage.getContent() 리스트에 데이터가 하나도 없는지 (size() == 0)를 확인합니다.
-//getSize()	${page.size}	Pageable 요청에 지정된 한 페이지의 최대 크기입니다. (대부분의 페이지에서 이 값은 고정입니다.)
-//추천 (내장 속성)	${page.numberOfElements}	Page 객체가 제공하는 내장 속성으로, 가장 직관적이고 효율적입니다.
-//대안 (List 크기)	${page.content.size()}	List<T>를 꺼내어 size() 메서드를 호출하는 방식입니다. numberOfElements와 동일한 값을 반환합니다.
+//ArticleService 에서 단순히 삭제하고 리스트화면으로 이동
+//public void delete(Long id){
+//    articleRepository.deleteById(id);
+//}

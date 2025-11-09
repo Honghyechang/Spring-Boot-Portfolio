@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security"
+
+      th:replace="~{/base-layout::layout(  ~{::section}  )}"
+>
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<section th:fragment="section">
+    <h1>게시판</h1>
+    <form th:object="${article}" th:action="@{/article/add}" method="post">
+        <div class="mb-3">
+        <label  class="form-label">제목</label>
+        <input th:type="text" th:field="*{title}" class="form-control">
+        <p th:if="${#fields.hasErrors('title')}" th:errors="*{title}" class="text-danger"></p>
+        </div>
+        <div class="mb-3">
+        <label class="form-label">내용</label>
+        <textarea th:field="*{description}" class="form-control">
+        </textarea>
+        <p th:if="${#fields.hasErrors('description')}" th:errors="*{description}" class="text-danger"></p>
+        </div>
+        <button type="submit" class="btn btn-primary">저장</button>
+    </form>
+</section>
+
+</body>
+</html>
+

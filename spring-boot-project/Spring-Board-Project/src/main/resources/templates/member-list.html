@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security"
+
+      th:replace="~{/base-layout::layout(  ~{::section}  )}">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<section th:fragment="section">
+
+    <h1>관리자 페이지</h1>
+    <table class="table">
+        <thead>
+        <tr>
+            <td>#</td>
+            <td>이름</td>
+            <td>이메일</td>
+            <td></td>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="member : ${page.content}">
+            <td th:text="${member.id}">#</td>
+            <td th:text="${member.name}">이름</td>
+            <td th:text="${member.email}">이메일</td>
+            <td>
+                <a th:href="@{/member/edit(id=${member.id}) }" class="btn btn-warning btn-sm">수정</a>
+                <a th:href="@{/member/delete(id=${member.id})}"  class="btn btn-danger btn-sm">삭제</a>
+            </td>
+        </tr>
+        </tbody>
+    </table>
+
+    <nav th:if="${!page.isEmpty()}">
+        <ul class="pagination" th:with=" groupPage=2,start=${(page.number div groupPage ) * groupPage} , last=${ start + groupPage -1 > page.totalPages ? page.totalPages : start + groupPage -1 }">
+
+            <li th:classappend="${page.first} ? 'disabled'" class="page-item">
+                <a th:href="@{/member/list(page=${(page.number)-1})}" class="page-link">
+                    &laquo;
+                </a>
+            </li>
+
+            <li th:each=" number : ${ #numbers.sequence(start,last)}" th:classappend="${page.number== number}?'active'" class="page-item">
+                <a th:href="@{/member/list(page=${number})}" th:text="${number+1}" class="page-link"></a>
+            </li>
+
+
+            <li th:classappend="${page.last} ? 'disabled'" class="page-item">
+                <a th:href="@{/member/list(page=${(page.number)+1})}" class="page-link">
+                    &raquo;
+                </a>
+            </li>
+
+
+        </ul>
+    </nav>
+
+</section>
+
+</body>
+</html>
+
