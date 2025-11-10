@@ -667,6 +667,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 @NoArgsConstructor
 public class MemberForm {
+    private Long id;
     @NotBlank(message="이름을 입력하세요.")
     private String name;
     
@@ -3870,9 +3871,2549 @@ boolean hasNext = page.hasNext();
                                          [Database]
                                          SELECT ... LIMIT 10 OFFSET 20
 ```
+## 4.5 게시글 상세 조회 구현
 
-이제 게시글 목록을 효율적으로 표시하는 기능이 완성되었습니다. 다음 단계에서는 게시글 상세 조회, 작성, 수정, 삭제 기능을 구현할 것입니다.
+게시글 목록에서 제목을 클릭하면 해당 게시글의 상세 내용을 볼 수 있는 기능을 구현합니다.
 
+### 동작 흐름
+
+```
+1. 사용자: 게시글 목록에서 제목 클릭
+   ↓
+2. 브라우저: GET /article/content?id=4 요청
+   ↓
+3. Controller: id 파라미터 수신
+   ↓
+4. Service: articleRepository.findById(id) 호출
+   ↓
+5. Repository: DB에서 Article 엔티티 조회
+   ↓
+6. Service: Article → ArticleDto 변환
+   ↓
+7. Controller: Model에 article 저장
+   ↓
+8. View: article-content.html 렌더링
+```
+
+### article-list.html - 상세 페이지 링크
+
+게시글 목록의 제목에 링크를 추가합니다.
+
+```html
+<tr th:each="article : ${page.content}">
+    <td th:text="${article.id}"></td>
+    <td>
+        <a th:href="@{/article/content (id=${article.id})}" 
+           th:text="${article.title}"></a>
+    </td>
+    <td th:text="${article.name}"></td>
+    <td th:text="${#temporals.format(article.updated,'yyyy-MM-dd HH:mm:ss')}"></td>
+</tr>
+```
+
+**링크 생성 방식**
+
+```
+th:href="@{/article/content (id=${article.id})}"
+         └─────┬─────┘ └────────┬────────┘
+          기본 경로      쿼리 파라미터
+```
+
+| 구성 요소 | 값 (예시) | 결과 URL |
+|-----------|----------|----------|
+| 기본 경로 | `/article/content` | `/article/content` |
+| 쿼리 파라미터 | `id=4` | `?id=4` |
+| **최종 URL** | - | `/article/content?id=4` |
+
+> **💡 참고**: Thymeleaf는 소괄호 `()` 안의 파라미터를 쿼리 스트링으로 자동 변환합니다.
+
+### ArticleController - 상세 조회 처리
+
+```java
+@Controller
+@RequestMapping("/article")
+@RequiredArgsConstructor
+@Slf4j
+public class ArticleController {
+
+    private final ArticleService articleService;
+
+    @RequestMapping("/content")
+    public String getContent(@RequestParam("id") Long id, Model model) {
+        ArticleDto articleDto = articleService.findById(id);
+        model.addAttribute("article", articleDto);
+        return "article-content";
+    }
+}
+```
+
+**핵심 포인트**
+
+| 요소 | 설명 |
+|------|------|
+| `@RequestParam("id")` | URL의 `?id=4` 쿼리 파라미터를 `Long id` 변수로 받습니다. |
+| `articleService.findById(id)` | DB에서 해당 게시글을 조회하여 DTO로 변환합니다. |
+| `model.addAttribute("article", articleDto)` | 뷰에서 사용할 데이터를 Model에 저장합니다. |
+
+### ArticleService - findById 메서드
+
+```java
+@Service
+@RequiredArgsConstructor
+public class ArticleService {
+    private final ArticleRepository articleRepository;
+    private final MemberRepository memberRepository;
+
+    public ArticleDto findById(Long id) {
+        Article article = articleRepository.findById(id).orElseThrow();
+        return mapToArticleDto(article);
+    }
+}
+```
+
+**orElseThrow()의 역할**
+
+```java
+articleRepository.findById(id).orElseThrow();
+```
+
+- `findById()`는 `Optional<Article>`을 반환합니다.
+- `orElseThrow()`: 값이 있으면 `Article`을 반환하고, 없으면 예외를 던집니다.
+- 존재하지 않는 게시글 ID로 접근 시 `NoSuchElementException`이 발생합니다.
+
+### article-content.html - 상세 화면
+
+```html
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org" 
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security"
+      th:replace="~{/base-layout::layout(~{::section})}">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<section th:fragment="section">
+    <h1>게시판</h1>
+
+    <table class="table">
+        <tbody>
+        <tr>
+            <td style="width: 20%;">#</td>
+            <td th:text="${article.id}"></td>
+        </tr>
+
+        <tr>
+            <td>제목</td>
+            <td th:text="${article.title}"></td>
+        </tr>
+
+        <tr>
+            <td>내용</td>
+            <td th:text="${article.description}"></td>
+        </tr>
+
+        <tr>
+            <td>글쓴이</td>
+            <td th:text="${article.name}"></td>
+        </tr>
+
+        <tr>
+            <td>글쓴일</td>
+            <td th:text="${#temporals.format(article.created,'yyyy-MM-dd HH:mm:ss')}"></td>
+        </tr>
+
+        <tr>
+            <td>수정일</td>
+            <td th:text="${#temporals.format(article.updated,'yyyy-MM-dd HH:mm:ss')}"></td>
+        </tr>
+        </tbody>
+    </table>
+
+    <!-- 목록 버튼 (모든 사용자) -->
+    <a th:href="@{/article/list}" class="btn btn-info btn-sm">목록</a>
+
+    <!-- 수정/삭제 버튼 (작성자만) -->
+    <th:block sec:authorize="isAuthenticated()" 
+              th:if="${#authentication.principal.memberId == article.memberId}">
+        <a th:href="@{/article/edit(id=${article.id})}" 
+           class="btn btn-warning btn-sm">수정</a>
+        <a th:href="@{/article/delete(id=${article.id})}" 
+           class="btn btn-danger btn-sm">삭제</a>
+    </th:block>
+
+</section>
+</body>
+</html>
+```
+
+#### 조건부 버튼 표시 로직
+
+**2단계 검증 방식**
+
+```html
+<th:block sec:authorize="isAuthenticated()" 
+          th:if="${#authentication.principal.memberId == article.memberId}">
+```
+
+| 순서 | 조건 | 검증 내용 |
+|------|------|----------|
+| **1단계** | `sec:authorize="isAuthenticated()"` | 사용자가 **로그인**했는지 확인합니다. 비로그인 사용자는 이 블록 전체가 렌더링되지 않습니다. |
+| **2단계** | `th:if="${#authentication.principal.memberId == article.memberId}"` | 현재 로그인한 사용자의 ID와 게시글 작성자 ID를 비교합니다. 일치할 때만 수정/삭제 버튼을 표시합니다. |
+
+**실행 우선순위**
+
+```
+sec:authorize (Spring Security)
+      ↓ (통과하면)
+th:if (Thymeleaf)
+      ↓ (통과하면)
+버튼 렌더링
+```
+
+- `sec:authorize`가 먼저 실행되어 인증 여부를 확인합니다.
+- 인증된 경우에만 `th:if` 조건을 평가합니다.
+- 두 조건을 모두 만족해야 수정/삭제 버튼이 표시됩니다.
+
+**#authentication.principal 접근**
+
+| 표현식 | 의미 |
+|--------|------|
+| `#authentication` | Spring Security의 `Authentication` 객체에 접근합니다. |
+| `.principal` | 인증된 사용자 정보를 담은 `UserDetails` 객체입니다. (우리 프로젝트에서는 `MemberUserDetails`) |
+| `.memberId` | `MemberUserDetails`의 `memberId` 필드 값입니다. |
+
+#### 화면 표시 결과
+
+**케이스 1: 비로그인 사용자**
+
+```
+[목록]
+```
+
+- 수정/삭제 버튼이 표시되지 않습니다.
+
+**케이스 2: 다른 사용자가 로그인한 경우**
+
+```
+[목록]
+```
+
+- `sec:authorize`는 통과하지만, `th:if`에서 ID 불일치로 버튼이 표시되지 않습니다.
+
+**케이스 3: 게시글 작성자가 로그인한 경우**
+
+```
+[목록] [수정] [삭제]
+```
+
+- 두 조건을 모두 만족하여 수정/삭제 버튼이 표시됩니다.
+
+---
+
+## 4.6 게시글 작성 기능 구현
+
+로그인한 사용자만 새로운 게시글을 작성할 수 있는 기능을 구현합니다.
+
+### 동작 흐름
+
+```
+1. 사용자: 게시글 목록에서 "글쓰기" 버튼 클릭
+   ↓
+2. 브라우저: GET /article/add 요청
+   ↓
+3. Controller: 빈 ArticleForm 객체 생성 및 Model에 저장
+   ↓
+4. View: article-add.html 렌더링 (빈 폼 표시)
+   ↓
+5. 사용자: 제목과 내용 입력 후 "저장" 버튼 클릭
+   ↓
+6. 브라우저: POST /article/add 요청 (폼 데이터 전송)
+   ↓
+7. Controller: @Valid로 자동 검증 + 수동 검증 (욕설 필터)
+   ↓
+8. 검증 실패 → 오류 메시지와 함께 폼 재표시
+   검증 성공 → Service 계층 호출
+   ↓
+9. Service: ArticleForm + MemberUserDetails → Article 엔티티 생성
+   ↓
+10. Repository: DB에 새 게시글 저장
+   ↓
+11. Controller: 게시글 목록 페이지로 리다이렉트
+```
+
+### article-list.html - 글쓰기 버튼
+
+게시글 목록 하단에 로그인한 사용자만 볼 수 있는 글쓰기 버튼을 추가합니다.
+
+```html
+<a th:href="@{/article/add}" 
+   sec:authorize="isAuthenticated()" 
+   class="btn btn-primary">글쓰기</a>
+```
+
+**sec:authorize="isAuthenticated()"**
+
+- Spring Security의 조건부 렌더링 태그입니다.
+- 로그인한 사용자에게만 이 링크가 표시됩니다.
+- 비로그인 사용자가 HTML 소스를 봐도 이 태그 자체가 존재하지 않습니다.
+
+### ArticleController - 게시글 작성 처리
+
+```java
+@Controller
+@RequestMapping("/article")
+@RequiredArgsConstructor
+@Slf4j
+public class ArticleController {
+
+    private final ArticleService articleService;
+
+    // GET 요청: 빈 폼 표시
+    @GetMapping("/add")
+    public String getAdd(@ModelAttribute("article") ArticleForm articleForm) {
+        return "article-add";
+    }
+
+    // POST 요청: 폼 제출 및 저장
+    @PostMapping("/add")
+    public String add(
+            @Valid @ModelAttribute("article") ArticleForm articleForm, 
+            BindingResult bindingResult,
+            @AuthenticationPrincipal MemberUserDetails memberUserDetails) {
+        
+        // 수동 검증 1: 제목 욕설 필터
+        if (articleForm.getTitle().equals("T발")) {
+            bindingResult.rejectValue("title", "SlangDetected", 
+                    "욕설을 사용하지 마세요.");
+        }
+
+        // 수동 검증 2: 내용 욕설 필터
+        if (articleForm.getDescription().equals("T발")) {
+            bindingResult.rejectValue("description", "SlangDetected", 
+                    "욕설을 사용하지 마세요.");
+        }
+
+        // 오류가 있으면 폼으로 다시 돌아가기
+        if (bindingResult.hasErrors()) {
+            return "article-add";
+        }
+
+        // 게시글 생성
+        articleService.add(articleForm, memberUserDetails);
+        return "redirect:/article/list";
+    }
+}
+```
+
+#### 핵심 포인트 분석
+
+**1. GET 요청 처리**
+
+```java
+@GetMapping("/add")
+public String getAdd(@ModelAttribute("article") ArticleForm articleForm) {
+    return "article-add";
+}
+```
+
+| 요소 | 역할 |
+|------|------|
+| `@ModelAttribute("article")` | 빈 `ArticleForm` 객체를 생성하여 `"article"` 이름으로 Model에 자동 저장합니다. |
+| `return "article-add"` | `article-add.html` 템플릿을 렌더링합니다. |
+
+- **회원가입 폼과 동일한 패턴**입니다.
+- 뷰에서 `th:object="${article}"`로 이 객체를 참조할 수 있습니다.
+
+**2. POST 요청 처리**
+
+```java
+@PostMapping("/add")
+public String add(
+        @Valid @ModelAttribute("article") ArticleForm articleForm, 
+        BindingResult bindingResult,
+        @AuthenticationPrincipal MemberUserDetails memberUserDetails)
+```
+
+**매개변수 상세 설명**
+
+| 매개변수 | 역할 | 중요성 |
+|----------|------|--------|
+| `@Valid ArticleForm` | 폼 데이터를 받아 자동 검증(`@NotBlank`)을 수행합니다. | Bean Validation |
+| `BindingResult` | 검증 오류를 수집하는 컨테이너입니다. | 오류 처리 |
+| `@AuthenticationPrincipal MemberUserDetails` | **현재 로그인한 사용자의 정보**를 주입받습니다. | 작성자 식별 |
+
+**@AuthenticationPrincipal의 중요성**
+
+```java
+@AuthenticationPrincipal MemberUserDetails memberUserDetails
+```
+
+- Spring Security가 `SecurityContext`에서 현재 인증된 사용자 정보를 가져옵니다.
+- `memberUserDetails.getMemberId()`로 **작성자의 DB ID**를 안전하게 획득합니다.
+- 세션 조작이나 hidden 필드 변조 공격을 방어할 수 있습니다.
+
+**3. 2단계 검증 시스템**
+
+```
+1단계: @Valid (자동 검증)
+   ↓
+@NotBlank 어노테이션 검사
+   ↓
+2단계: 수동 검증
+   ↓
+비즈니스 규칙 검사 (욕설 필터)
+   ↓
+bindingResult.hasErrors() 확인
+```
+
+**수동 검증 예시**
+
+```java
+if (articleForm.getTitle().equals("T발")) {
+    bindingResult.rejectValue("title", "SlangDetected", 
+            "욕설을 사용하지 마세요.");
+}
+```
+
+| 파라미터 | 값 | 의미 |
+|----------|-----|------|
+| **1번째** | `"title"` | 오류를 표시할 필드명 |
+| **2번째** | `"SlangDetected"` | 오류 코드 (메시지 소스 키로 사용 가능) |
+| **3번째** | `"욕설을 사용하지 마세요."` | 실제 표시될 오류 메시지 |
+
+> **💡 실무 팁**: 실제 프로젝트에서는 정규표현식이나 외부 욕설 필터 라이브러리를 사용합니다.
+
+### ArticleForm DTO
+
+게시글 작성과 수정에 모두 사용되는 DTO입니다.
+
+```java
+package com.example.Spring.Board.Project.dto;
+
+import jakarta.validation.constraints.NotBlank;
+import lombok.AllArgsConstructor;
+import lombok.Builder;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+public class ArticleForm {
+
+    private Long id;  // 작성 시: null, 수정 시: 게시글 ID
+
+    @NotBlank(message = "게시글 제목을 입력하세요.")
+    private String title;
+
+    @NotBlank(message = "게시글 내용을 입력하세요")
+    private String description;
+}
+```
+
+#### id 필드의 이중 용도
+
+| 사용 케이스 | id 값 | 역할 |
+|------------|-------|------|
+| **새 글 작성** | `null` | 사용되지 않음. DB가 자동으로 새 ID를 생성합니다. |
+| **글 수정** | `숫자 (예: 5)` | 어떤 게시글을 수정할지 식별하는 키입니다. |
+
+**설계 의도**
+
+- 하나의 DTO를 작성(CREATE)과 수정(UPDATE)에 재사용하여 코드 중복을 줄입니다.
+- `id`의 값 유무로 현재 작업이 '작성'인지 '수정'인지 판단합니다.
+
+#### Bean Validation 어노테이션 정리
+
+Spring Boot에서 가장 자주 사용되는 JSR-380 (Bean Validation) 어노테이션들입니다.
+
+**1. 기본 제약 조건 (Null, Empty, Blank)**
+
+| 어노테이션 | 허용하지 않는 값 | 적용 타입 | 특징 |
+|-----------|----------------|----------|------|
+| `@NotNull` | `null` | 모든 타입 | 빈 문자열(`""`)이나 공백(`" "`)은 허용합니다. |
+| `@NotEmpty` | `null`, `""`, `size=0` | String, Collection, Array | 공백만 있는 문자열(`" "`)은 허용합니다. |
+| `@NotBlank` | `null`, `""`, `"   "` | String 전용 | **가장 엄격한 검증**입니다. 실무에서 가장 많이 사용됩니다. |
+
+**2. 문자열 및 형식 제약 조건**
+
+| 어노테이션 | 속성 | 설명 | 주의사항 |
+|-----------|------|------|----------|
+| `@Email` | - | 유효한 이메일 형식인지 검증합니다. | `null`이나 빈 문자열은 통과시킵니다. `@NotBlank`와 함께 사용해야 합니다. |
+| `@Size` | `min`, `max` | 문자열 길이나 컬렉션 크기를 검증합니다. | `@Size(min=8, max=20, message="8~20자로 입력하세요")` |
+| `@Pattern` | `regexp` | 정규 표현식과 일치하는지 검증합니다. | 복잡한 형식 검사에 사용됩니다. |
+
+**3. 숫자 및 값 범위 제약 조건**
+
+| 어노테이션 | 속성 | 설명 |
+|-----------|------|------|
+| `@Min` | `value` | 지정된 최솟값 이상인지 검증합니다. |
+| `@Max` | `value` | 지정된 최댓값 이하인지 검증합니다. |
+| `@Positive` | - | 양수(0 초과)인지 검증합니다. |
+| `@PositiveOrZero` | - | 양수이거나 0인지 검증합니다. |
+| `@Negative` | - | 음수(0 미만)인지 검증합니다. |
+| `@NegativeOrZero` | - | 음수이거나 0인지 검증합니다. |
+
+**4. 날짜/시간 제약 조건**
+
+| 어노테이션 | 설명 |
+|-----------|------|
+| `@Past` | 현재 시점보다 과거인지 검증합니다. |
+| `@PastOrPresent` | 현재 시점이거나 과거인지 검증합니다. |
+| `@Future` | 현재 시점보다 미래인지 검증합니다. |
+| `@FutureOrPresent` | 현재 시점이거나 미래인지 검증합니다. |
+
+**사용 예시**
+
+```java
+public class MemberForm {
+    @NotBlank(message = "이름을 입력하세요.")
+    @Size(min = 2, max = 20, message = "이름은 2~20자로 입력하세요.")
+    private String name;
+
+    @NotBlank(message = "이메일을 입력하세요.")
+    @Email(message = "올바른 이메일 형식이 아닙니다.")
+    private String email;
+
+    @NotBlank(message = "비밀번호를 입력하세요.")
+    @Size(min = 8, message = "비밀번호는 8자 이상이어야 합니다.")
+    private String password;
+
+    @Min(value = 18, message = "18세 이상만 가입 가능합니다.")
+    private Integer age;
+}
+```
+
+### article-add.html - 작성 폼
+
+```html
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security"
+      th:replace="~{/base-layout::layout(~{::section})}">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<section th:fragment="section">
+    <h1>게시판</h1>
+    
+    <form th:object="${article}" th:action="@{/article/add}" method="post">
+        <div class="mb-3">
+            <label class="form-label">제목</label>
+            <input type="text" th:field="*{title}" class="form-control">
+            <p th:if="${#fields.hasErrors('title')}" 
+               th:errors="*{title}" 
+               class="text-danger"></p>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">내용</label>
+            <textarea th:field="*{description}" class="form-control"></textarea>
+            <p th:if="${#fields.hasErrors('description')}" 
+               th:errors="*{description}" 
+               class="text-danger"></p>
+        </div>
+
+        <button type="submit" class="btn btn-primary">저장</button>
+    </form>
+</section>
+</body>
+</html>
+```
+
+#### 폼 바인딩 패턴 복습
+
+**1. th:object - 폼과 객체 연결**
+
+```html
+<form th:object="${article}" th:action="@{/article/add}" method="post">
+```
+
+- `th:object="${article}"`: Model의 `article` 객체를 폼과 연결합니다.
+- 이후 `th:field`에서 `*{필드명}` 문법으로 해당 객체의 필드를 참조할 수 있습니다.
+
+**2. th:field - 필드 바인딩**
+
+```html
+<input type="text" th:field="*{title}" class="form-control">
+```
+
+`th:field="*{title}"`는 다음 세 가지 HTML 속성을 자동으로 생성합니다:
+
+| 생성되는 속성 | 값 | 역할 |
+|--------------|-----|------|
+| `id` | `title` | JavaScript나 CSS에서 요소 식별 |
+| `name` | `title` | 폼 제출 시 서버로 전송되는 파라미터 이름 |
+| `value` | `""` (또는 이전 입력값) | 오류 발생 시 이전 입력값 유지 |
+
+**3. th:errors - 오류 메시지 표시**
+
+```html
+<p th:if="${#fields.hasErrors('title')}" 
+   th:errors="*{title}" 
+   class="text-danger"></p>
+```
+
+| 구성 요소 | 역할 |
+|----------|------|
+| `th:if="${#fields.hasErrors('title')}"` | `title` 필드에 오류가 있을 때만 `<p>` 태그를 렌더링합니다. |
+| `th:errors="*{title}"` | `BindingResult`에서 `title` 필드의 오류 메시지를 추출하여 표시합니다. |
+| `class="text-danger"` | Bootstrap의 빨간색 텍스트 스타일을 적용합니다. |
+
+**오류 표시 예시**
+
+```
+제목
+[입력 필드]
+게시글 제목을 입력하세요.  ← 빨간색 텍스트
+
+내용
+[입력 필드]
+욕설을 사용하지 마세요.  ← 빨간색 텍스트
+```
+
+### ArticleService - add 메서드
+
+```java
+@Service
+@RequiredArgsConstructor
+public class ArticleService {
+    private final ArticleRepository articleRepository;
+    private final MemberRepository memberRepository;
+
+    public ArticleDto add(ArticleForm articleForm, MemberUserDetails memberUserDetails) {
+        // 1. 작성자 정보 조회
+        Member member = memberRepository.findById(memberUserDetails.getMemberId())
+                .orElseThrow();
+
+        // 2. ArticleForm → Article 엔티티 변환
+        Article article = Article.builder()
+                .title(articleForm.getTitle())
+                .description(articleForm.getDescription())
+                .member(member)  // 작성자 정보 연결
+                .build();
+
+        // 3. DB 저장
+        articleRepository.save(article);
+
+        // 4. Article → ArticleDto 변환 후 반환
+        return mapToArticleDto(article);
+    }
+}
+```
+
+#### 핵심 처리 과정
+
+**1. 작성자 정보 조회**
+
+```java
+Member member = memberRepository.findById(memberUserDetails.getMemberId())
+        .orElseThrow();
+```
+
+| 단계 | 동작 | 설명 |
+|------|------|------|
+| 1 | `memberUserDetails.getMemberId()` | 현재 로그인한 사용자의 DB ID를 가져옵니다. |
+| 2 | `memberRepository.findById(...)` | DB에서 해당 회원 엔티티를 조회합니다. |
+| 3 | `.orElseThrow()` | 회원이 없으면 예외를 던집니다. (실제로는 로그인한 사용자이므로 항상 존재) |
+
+**2. DTO → 엔티티 변환**
+
+```java
+Article article = Article.builder()
+        .title(articleForm.getTitle())
+        .description(articleForm.getDescription())
+        .member(member)  // 외래키 관계 설정
+        .build();
+```
+
+**Builder 패턴의 장점**
+
+| 장점 | 설명 |
+|------|------|
+| **가독성** | 어떤 필드에 어떤 값이 설정되는지 명확합니다. |
+| **불변성** | 모든 필드를 한 번에 설정하여 객체를 생성합니다. |
+| **선택적 설정** | 필요한 필드만 설정할 수 있습니다. |
+
+**외래키 관계 설정**
+
+```java
+.member(member)
+```
+
+- `Article` 엔티티의 `member` 필드는 `@ManyToOne`으로 `Member`와 연관관계를 맺고 있습니다.
+- JPA가 이 객체 참조를 `article` 테이블의 `member_id` 외래키로 자동 변환합니다.
+
+**3. DB 저장**
+
+```java
+articleRepository.save(article);
+```
+
+- JPA가 `INSERT`SQL을 자동으로 생성하여 실행합니다.
+- `created`와 `updated` 필드는 `@CreatedDate`, `@LastModifiedDate` 어노테이션으로 자동 설정됩니다.
+
+**실제 실행되는 SQL**
+
+```sql
+INSERT INTO article (title, description, member_id, created, updated)
+VALUES ('제목', '내용', 1, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP);
+```
+
+**4. 엔티티 → DTO 변환**
+
+```java
+return mapToArticleDto(article);
+```
+
+- 저장된 `Article` 엔티티를 `ArticleDto`로 변환하여 반환합니다.
+- 컨트롤러는 이 DTO를 사용할 수도 있지만, 현재는 리다이렉트하므로 사용되지 않습니다.
+
+### 전체 작성 프로세스 정리
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ 1. GET /article/add - 폼 초기화                          │
+│    @ModelAttribute로 빈 ArticleForm 생성 → Model에 저장  │
+└─────────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────────┐
+│ 2. 사용자 입력                                           │
+│    Thymeleaf (th:object, th:field)로 폼 데이터 입력      │
+└─────────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────────┐
+│ 3. POST /article/add - 폼 제출                           │
+│    ├─ @Valid: @NotBlank 자동 검증                       │
+│    └─ BindingResult: 검증 결과 수집                      │
+└─────────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────────┐
+│ 4. 수동 검증                                             │
+│    rejectValue()로 비즈니스 로직 검증 (욕설 필터)         │
+└─────────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────────┐
+│ 5. 오류 처리                                             │
+│    bindingResult.hasErrors() 확인                        │
+│    ├─ 오류 있음: "article-add" 반환 (폼 재표시)          │
+│    └─ 성공: articleService.add() 호출                    │
+└─────────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────────┐
+│ 6. Service 로직                                          │
+│    ├─ 작성자 정보 조회 (Member)                          │
+│    ├─ ArticleForm → Article 엔티티 변환                  │
+│    └─ DB 저장 (INSERT)                                   │
+└─────────────────────────────────────────────────────────┘
+                        ↓
+┌─────────────────────────────────────────────────────────┐
+│ 7. 리다이렉트                                            │
+│    "redirect:/article/list" - 게시글 목록으로 이동        │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## 4.7 게시글 수정 기능 구현
+
+기존 게시글의 내용을 수정하는 기능을 구현합니다. 작성 기능과 유사하지만, **기존 데이터를 폼에 미리 채워서 보여준다**는 점이 다릅니다.
+
+### 동작 흐름
+
+```
+1. 사용자: 게시글 상세 페이지에서 "수정" 버튼 클릭
+   ↓
+2. 브라우저: GET /article/edit?id=5 요청
+   ↓
+3. Controller: id로 기존 게시글 조회
+   ↓
+4. Service: DB에서 Article 조회 → ArticleDto 변환
+   ↓
+5. Controller: ArticleForm에 기존 데이터 채우기
+   ↓
+6. View: article-edit.html 렌더링 (기존 내용이 채워진 폼)
+   ↓
+7. 사용자: 내용 수정 후 "저장" 버튼 클릭
+   ↓
+8. 브라우저: POST /article/edit 요청 (수정된 데이터 + id)
+   ↓
+9. Controller: 검증 수행
+   ↓
+10. Service: id로 기존 Article 조회 → 내용 수정 → 저장
+   ↓
+11. Controller: 게시글 목록으로 리다이렉트
+```
+
+### ArticleForm의 이중 활용
+
+`ArticleForm` DTO는 **작성(CREATE)**과 **수정(UPDATE)** 두 가지 경우에 모두 사용됩니다.
+
+```java
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Builder
+public class ArticleForm {
+    private Long id;  // ⭐ 핵심 필드
+    
+    @NotBlank(message = "게시글 제목을 입력하세요.")
+    private String title;
+    
+    @NotBlank(message = "게시글 내용을 입력하세요")
+    private String description;
+}
+```
+
+#### id 필드의 역할 비교
+
+| 작업 | id 값 | 초기화 방법 | 역할 |
+|------|-------|------------|------|
+| **작성 (CREATE)** | `null` | `@ModelAttribute`가 빈 객체 생성 | 사용되지 않음. DB가 자동으로 새 ID 생성 |
+| **수정 (UPDATE)** | `5` (예시) | Controller에서 `articleForm.setId(5)` | **어떤 게시글을 수정할지 식별**하는 키 |
+
+#### 주의사항
+
+> **⚠️ 중요**: 수정 시에는 `ArticleForm`의 `id` 필드가 **반드시 채워져야** 합니다. 이 ID가 없으면 서버는 어떤 게시글을 수정해야 하는지 알 수 없습니다.
+
+### ArticleController - 수정 처리
+
+```java
+@Controller
+@RequestMapping("/article")
+@RequiredArgsConstructor
+@Slf4j
+public class ArticleController {
+
+    private final ArticleService articleService;
+
+    // GET 요청: 기존 데이터를 채운 폼 표시
+    @GetMapping("/edit")
+    public String getEdit(
+            @RequestParam("id") Long id,
+            @ModelAttribute("article") ArticleForm articleForm) {
+        
+        // 1. DB에서 기존 게시글 조회
+        ArticleDto articleDto = articleService.findById(id);
+        
+        // 2. ArticleForm에 기존 데이터 채우기
+        articleForm.setTitle(articleDto.getTitle());
+        articleForm.setDescription(articleDto.getDescription());
+        articleForm.setId(articleDto.getId());  // ⭐ ID도 함께 설정
+        
+        return "article-edit";
+    }
+
+    // POST 요청: 수정된 데이터 저장
+    @PostMapping("/edit")
+    public String editArticle(
+            @Valid @ModelAttribute("article") ArticleForm articleForm,
+            BindingResult bindingResult) {
+        
+        // 수동 검증 1: 제목 욕설 필터
+        if (articleForm.getTitle().equals("T발")) {
+            bindingResult.rejectValue("title", "SlangDetected", 
+                    "욕설을 사용하지 마세요.");
+        }
+
+        // 수동 검증 2: 내용 욕설 필터
+        if (articleForm.getDescription().equals("T발")) {
+            bindingResult.rejectValue("description", "SlangDetected", 
+                    "욕설을 사용하지 마세요.");
+        }
+
+        // 오류가 있으면 수정 폼으로 다시 돌아가기
+        if (bindingResult.hasErrors()) {
+            return "article-edit";
+        }
+
+        // 게시글 수정
+        articleService.update(articleForm);
+        return "redirect:/article/list";
+    }
+}
+```
+
+#### 작성 vs 수정 비교
+
+**GET 요청 처리 차이**
+
+| 작업 | 작성 (getAdd) | 수정 (getEdit) |
+|------|--------------|---------------|
+| **파라미터** | `@ModelAttribute("article")` ArticleForm | `@RequestParam("id")` Long id<br>`@ModelAttribute("article")` ArticleForm |
+| **초기화** | Spring이 자동으로 빈 객체 생성 | **개발자가 직접** 기존 데이터로 채움 |
+| **id 필드** | `null` | 게시글 ID (예: `5`) |
+| **목적** | 빈 폼 제공 | 기존 데이터가 채워진 폼 제공 |
+
+**핵심 차이점**
+
+```java
+// 작성 (getAdd)
+@GetMapping("/add")
+public String getAdd(@ModelAttribute("article") ArticleForm articleForm) {
+    // articleForm은 비어있음 (Spring이 자동 생성)
+    return "article-add";
+}
+
+// 수정 (getEdit)
+@GetMapping("/edit")
+public String getEdit(
+        @RequestParam("id") Long id,
+        @ModelAttribute("article") ArticleForm articleForm) {
+    
+    ArticleDto articleDto = articleService.findById(id);
+    
+    // ⭐ 직접 데이터를 채워넣음
+    articleForm.setTitle(articleDto.getTitle());
+    articleForm.setDescription(articleDto.getDescription());
+    articleForm.setId(articleDto.getId());  // ID 필수!
+    
+    return "article-edit";
+}
+```
+
+**POST 요청 처리는 동일**
+
+- 검증 로직이 완전히 같습니다.
+- 차이점은 Service 계층에서 **INSERT vs UPDATE** 작업을 수행한다는 점뿐입니다.
+
+### article-edit.html - 수정 폼
+
+```html
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security"
+      th:replace="~{/base-layout::layout(~{::section})}">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<section th:fragment="section">
+    <h1>게시글 수정</h1>
+    
+    <form th:object="${article}" th:action="@{/article/edit}" method="post">
+        
+        <!-- ⭐ 숨겨진 ID 필드 (매우 중요!) -->
+        <input type="hidden" th:field="*{id}">
+
+        <div class="mb-3">
+            <label class="form-label">제목</label>
+            <input type="text" th:field="*{title}" class="form-control">
+            <p th:if="${#fields.hasErrors('title')}" 
+               th:errors="*{title}" 
+               class="text-danger"></p>
+        </div>
+
+        <div class="mb-3">
+            <label class="form-label">내용</label>
+            <textarea th:field="*{description}" class="form-control"></textarea>
+            <p th:if="${#fields.hasErrors('description')}" 
+               th:errors="*{description}" 
+               class="text-danger"></p>
+        </div>
+
+        <button type="submit" class="btn btn-primary">저장</button>
+    </form>
+</section>
+</body>
+</html>
+```
+
+#### 숨겨진 ID 필드의 중요성
+
+```html
+<input type="hidden" th:field="*{id}">
+```
+
+**왜 필요한가?**
+
+| 이유 | 설명 |
+|------|------|
+| **게시글 식별** | 서버가 어떤 게시글을 수정해야 하는지 알아야 합니다. |
+| **보안** | URL 조작으로 다른 게시글을 수정하는 것을 방지합니다. |
+| **데이터 무결성** | 수정 작업의 대상을 명확히 지정합니다. |
+
+**동작 원리**
+
+```
+1. GET /article/edit?id=5
+   ↓
+2. Controller: articleForm.setId(5)
+   ↓
+3. Thymeleaf: <input type="hidden" name="id" value="5">
+   ↓
+4. 사용자가 폼 제출
+   ↓
+5. POST /article/edit
+   - title: "수정된 제목"
+   - description: "수정된 내용"
+   - id: 5  ← 숨겨진 필드로 전송
+   ↓
+6. Service: articleRepository.findById(5) → 내용 수정
+```
+
+**보안 고려사항**
+
+```html
+<!-- ❌ 위험: URL 파라미터만 사용 -->
+<!-- 사용자가 URL을 /article/edit?id=999로 변조 가능 -->
+
+<!-- ✅ 안전: hidden 필드 + 권한 검증 -->
+<input type="hidden" th:field="*{id}">
+```
+
+> **💡 실무 팁**: 실제 프로젝트에서는 서버에서 추가로 **수정 권한**을 검증해야 합니다. (현재 사용자가 작성자인지 확인)
+
+**렌더링 결과**
+
+```html
+<form action="/article/edit" method="post">
+    <input type="hidden" name="id" value="5">
+    <input type="hidden" name="_csrf" value="랜덤토큰">
+    
+    <input type="text" name="title" value="기존 제목">
+    <textarea name="description">기존 내용</textarea>
+    
+    <button type="submit">저장</button>
+</form>
+```
+
+### ArticleService - update 메서드
+
+```java
+@Service
+@RequiredArgsConstructor
+public class ArticleService {
+    private final ArticleRepository articleRepository;
+
+    public ArticleDto update(ArticleForm articleForm) {
+        // 1. 기존 게시글 조회
+        Article article = articleRepository.findById(articleForm.getId())
+                .orElseThrow();
+        
+        // 2. 내용 수정 (Dirty Checking)
+        article.setTitle(articleForm.getTitle());
+        article.setDescription(articleForm.getDescription());
+        
+        // 3. 변경 사항 저장
+        articleRepository.save(article);
+        
+        // 4. DTO 변환 후 반환
+        return mapToArticleDto(article);
+    }
+}
+```
+
+#### JPA의 Dirty Checking
+
+**동작 원리**
+
+```java
+Article article = articleRepository.findById(articleForm.getId()).orElseThrow();
+// ↑ 영속성 컨텍스트에서 관리되는 엔티티
+
+article.setTitle(articleForm.getTitle());
+article.setDescription(articleForm.getDescription());
+// ↑ 엔티티 내용 변경
+
+articleRepository.save(article);
+// ↑ JPA가 변경된 필드를 감지하여 UPDATE SQL 자동 생성
+```
+
+**실제 실행되는 SQL**
+
+```sql
+UPDATE article
+SET title = '수정된 제목',
+    description = '수정된 내용',
+    updated = CURRENT_TIMESTAMP
+WHERE id = 5;
+```
+
+**Dirty Checking의 장점**
+
+| 장점 | 설명 |
+|------|------|
+| **자동화** | 개발자가 UPDATE SQL을 작성하지 않아도 됩니다. |
+| **효율성** | 변경된 필드만 UPDATE 쿼리에 포함됩니다. |
+| **일관성** | `@LastModifiedDate`가 자동으로 갱신됩니다. |
+
+#### 수정 시 주의사항
+
+**member 필드는 수정하지 않음**
+
+```java
+public ArticleDto update(ArticleForm articleForm) {
+    Article article = articleRepository.findById(articleForm.getId()).orElseThrow();
+    
+    article.setTitle(articleForm.getTitle());
+    article.setDescription(articleForm.getDescription());
+    // article.setMember(...) ← 작성자는 변경하지 않음!
+    
+    articleRepository.save(article);
+    return mapToArticleDto(article);
+}
+```
+
+| 필드 | 수정 여부 | 이유 |
+|------|----------|------|
+| `title` | ✅ 수정 | 사용자가 제목을 변경할 수 있습니다. |
+| `description` | ✅ 수정 | 사용자가 내용을 변경할 수 있습니다. |
+| `member` | ❌ 유지 | 작성자는 변경할 수 없습니다. (데이터 무결성) |
+| `created` | ❌ 유지 | 최초 작성 시간은 불변입니다. |
+| `updated` | ✅ 자동 갱신 | `@LastModifiedDate`가 자동으로 현재 시간으로 설정됩니다. |
+
+---
+
+## 4.8 게시글 삭제 기능 구현
+
+게시글을 삭제하는 기능을 구현합니다. 가장 간단한 기능이지만, 권한 검증이 중요합니다.
+
+### 동작 흐름
+
+```
+1. 사용자: 게시글 상세 페이지에서 "삭제" 버튼 클릭
+   ↓
+2. 브라우저: GET /article/delete?id=5 요청
+   ↓
+3. Controller: id 파라미터 수신
+   ↓
+4. Service: articleRepository.deleteById(id) 호출
+   ↓
+5. Repository: DB에서 해당 게시글 삭제
+   ↓
+6. Controller: 게시글 목록으로 리다이렉트
+```
+
+### ArticleController - 삭제 처리
+
+```java
+@Controller
+@RequestMapping("/article")
+@RequiredArgsConstructor
+@Slf4j
+public class ArticleController {
+
+    private final ArticleService articleService;
+
+    @GetMapping("/delete")
+    public String delete(@RequestParam("id") Long id) {
+        articleService.delete(id);
+        return "redirect:/article/list";
+    }
+}
+```
+
+**간단한 구조**
+
+- 별도의 확인 페이지 없이 바로 삭제합니다.
+- 실제 삭제 로직은 Service 계층에 위임합니다.
+- 삭제 후 게시글 목록으로 리다이렉트합니다.
+
+### ArticleService - delete 메서드
+
+```java
+@Service
+@RequiredArgsConstructor
+public class ArticleService {
+    private final ArticleRepository articleRepository;
+
+    public void delete(Long id) {
+        articleRepository.deleteById(id);
+    }
+}
+```
+
+**Spring Data JPA의 deleteById()**
+
+```java
+articleRepository.deleteById(id);
+```
+
+- `JpaRepository`가 제공하는 기본 메서드입니다.
+- 내부적으로 다음 두 단계를 수행합니다:
+  1. `findById(id)` - 엔티티 조회
+  2. `remove(entity)` - 엔티티 삭제
+
+**실제 실행되는 SQL**
+
+```sql
+DELETE FROM article WHERE id = 5;
+```
+
+### 삭제 vs 회원 삭제의 차이
+
+**게시글 삭제**
+
+```java
+public void delete(Long id) {
+    articleRepository.deleteById(id);
+}
+```
+
+- 단순히 게시글만 삭제합니다.
+- 연관된 엔티티가 없으므로 바로 삭제 가능합니다.
+
+**회원 삭제 (나중에 구현할 내용)**
+
+```java
+@Transactional
+public void delete(Long id) {
+    Member member = memberRepository.findById(id).orElseThrow();
+    
+    // ⭐ 회원이 작성한 게시글을 먼저 삭제
+    articleRepository.deleteAllByMember(member);
+    
+    // 그 다음 회원 삭제
+    memberRepository.deleteById(id);
+}
+```
+
+| 작업 | 연관 데이터 처리 | 트랜잭션 필요 |
+|------|----------------|--------------|
+| **게시글 삭제** | 연관 데이터 없음 | 불필요 |
+| **회원 삭제** | 회원이 작성한 게시글 먼저 삭제 | **필수** |
+
+> **⚠️ 주의**: 외래키 제약조건 때문에 회원을 삭제하기 전에 해당 회원이 작성한 모든 게시글을 먼저 삭제해야 합니다.
+
+### 실무 고려사항
+
+**1. Soft Delete (논리적 삭제)**
+
+실무에서는 데이터를 실제로 삭제하지 않고 **삭제 플래그**를 설정하는 경우가 많습니다.
+
+```java
+@Entity
+public class Article {
+    // ...
+    
+    private Boolean deleted = false;  // 삭제 여부
+    private LocalDateTime deletedAt;  // 삭제 시간
+}
+
+// Service
+public void delete(Long id) {
+    Article article = articleRepository.findById(id).orElseThrow();
+    article.setDeleted(true);
+    article.setDeletedAt(LocalDateTime.now());
+    articleRepository.save(article);
+}
+```
+
+**2. 권한 검증**
+
+현재 코드는 URL만 알면 누구나 삭제할 수 있습니다. 실무에서는 추가 검증이 필요합니다.
+
+```java
+@GetMapping("/delete")
+public String delete(
+        @RequestParam("id") Long id,
+        @AuthenticationPrincipal MemberUserDetails userDetails) {
+    
+    // 작성자 확인
+    ArticleDto article = articleService.findById(id);
+    if (!article.getMemberId().equals(userDetails.getMemberId())) {
+        throw new AccessDeniedException("삭제 권한이 없습니다.");
+    }
+    
+    articleService.delete(id);
+    return "redirect:/article/list";
+}
+```
+
+**3. 확인 대화상자**
+
+사용자 실수를 방지하기 위해 JavaScript 확인 대화상자를 추가할 수 있습니다.
+
+```html
+<a th:href="@{/article/delete(id=${article.id})}" 
+   class="btn btn-danger btn-sm"
+   onclick="return confirm('정말 삭제하시겠습니까?')">삭제</a>
+```
+
+---
+
+## 4.9 게시글 기능 전체 흐름 정리
+
+### CRUD 작업별 특징 비교
+
+| 작업 | HTTP 메서드 | URL 패턴 | ArticleForm.id | 주요 특징 |
+|------|------------|---------|---------------|----------|
+| **Create** | GET/POST | `/article/add` | `null` | 빈 폼 제공, 새 레코드 삽입 |
+| **Read** | GET | `/article/content?id=5` | - | 조회만 수행, DTO 반환 |
+| **Update** | GET/POST | `/article/edit?id=5` | `5` | **기존 데이터로 폼 채움**, 레코드 수정 |
+| **Delete** | GET | `/article/delete?id=5` | - | 레코드 삭제 후 리다이렉트 |
+
+### 공통 패턴
+
+**1. 폼 처리 패턴 (Create, Update)**
+
+```
+GET 요청
+   ↓
+ArticleForm 객체 준비 (빈 객체 OR 기존 데이터)
+   ↓
+View 렌더링 (article-add.html OR article-edit.html)
+   ↓
+POST 요청
+   ↓
+@Valid 자동 검증
+   ↓
+수동 검증 (rejectValue)
+   ↓
+bindingResult.hasErrors() 확인
+   ├─ 오류: 폼 재표시
+   └─ 성공: Service 호출 → DB 작업 → 리다이렉트
+```
+
+**2. 조회/삭제 패턴 (Read, Delete)**
+
+```
+GET 요청
+   ↓
+@RequestParam으로 id 수신
+   ↓
+Service 호출
+   ├─ Read: ArticleDto 반환 → View에 전달
+   └─ Delete: deleteById() → 리다이렉트
+```
+
+### 핵심 학습 포인트
+
+**1. DTO의 이중 용도**
+
+```java
+public class ArticleForm {
+    private Long id;  // 작성: null, 수정: 게시글 ID
+    // ...
+}
+```
+
+- 하나의 DTO를 CREATE와 UPDATE에 재사용하여 코드 중복을 줄입니다.
+- `id` 필드의 값 유무로 작업 유형을 구분합니다.
+
+**2. 검증 시스템**
+
+```java
+@Valid ArticleForm  // 1단계: Bean Validation
+   ↓
+@NotBlank 검사
+   ↓
+수동 검증  // 2단계: 비즈니스 규칙
+   ↓
+rejectValue("field", "code", "message")
+   ↓
+bindingResult.hasErrors()
+```
+
+**3. JPA의 자동화 기능**
+
+| 기능 | 어노테이션 | 효과 |
+|------|-----------|------|
+| **자동 ID 생성** | `@GeneratedValue` | INSERT 시 DB가 자동으로 ID 할당 |
+| **생성 시간** | `@CreatedDate` | 엔티티 생성 시 자동으로 현재 시간 설정 |
+| **수정 시간** | `@LastModifiedDate` | 엔티티 수정 시 자동으로 현재 시간 갱신 |
+| **Dirty Checking** | - | 변경된 필드만 UPDATE 쿼리에 포함 |
+
+**4. Thymeleaf 폼 바인딩**
+
+```html
+<form th:object="${article}">
+    <input th:field="*{title}">  <!-- id, name, value 자동 생성 -->
+    <p th:errors="*{title}">     <!-- 오류 메시지 표시 -->
+</form>
+```
+
+---
+
+## 5. 회원 관리 화면 구현
+
+이 장에서는 **관리자 전용 기능**인 회원 관리 화면을 구현합니다. 관리자는 모든 회원의 목록을 조회하고, 회원 정보를 수정하거나 삭제할 수 있습니다.
+
+### 기능 개요
+
+```
+관리자 기능
+├── 회원 목록 조회 (페이지네이션)
+├── 회원 정보 수정 (이름만 수정 가능)
+└── 회원 삭제 (작성한 게시글도 함께 삭제)
+```
+
+### 접근 권한
+
+**base-layout.html의 권한 제어**
+
+```html
+<!-- 관리자에게만 표시 -->
+<li sec:authorize="hasAuthority('ROLE_ADMIN')" class="nav-item dropdown">
+    <a class="nav-link dropdown-toggle" role="button" 
+       data-bs-toggle="dropdown" aria-expanded="false">
+        관리
+    </a>
+    <ul class="dropdown-menu">
+        <li>
+            <a th:href="@{/member/list}">회원관리</a>
+        </li>
+    </ul>
+</li>
+```
+
+**hasAuthority('ROLE_ADMIN')**
+
+- Spring Security의 권한 검증 표현식입니다.
+- `ROLE_ADMIN` 권한을 가진 사용자에게만 메뉴가 표시됩니다.
+- 일반 사용자(`ROLE_USER`)는 이 메뉴를 볼 수 없습니다.
+
+**권한 확인 방법**
+
+```sql
+-- data.sql에서 설정한 관리자 권한
+INSERT INTO authority(authority, member_id) 
+VALUES('ROLE_ADMIN', 2);  -- 윤서준에게 관리자 권한 부여
+```
+
+- `authority` 테이블에 `ROLE_ADMIN` 레코드가 있는 회원만 관리 메뉴에 접근할 수 있습니다.
+
+---## 5.1 회원 목록 조회 구현
+
+관리자가 모든 회원의 목록을 페이지네이션 방식으로 조회할 수 있는 기능을 구현합니다.
+
+### 동작 흐름
+
+```
+1. 관리자: 네비게이션바에서 "회원관리" 클릭
+   ↓
+2. 브라우저: GET /member/list 요청
+   ↓
+3. Controller: Pageable 객체 생성 (page, size, sort)
+   ↓
+4. Service: memberRepository.findAll(pageable) 호출
+   ↓
+5. Repository: DB에서 페이지 단위로 회원 조회
+   ↓
+6. Service: Page<Member> → Page<MemberDto> 변환
+   ↓
+7. Controller: Model에 page 저장
+   ↓
+8. View: member-list.html 렌더링
+```
+
+### MemberController - 회원 목록 조회
+
+```java
+package com.example.Spring.Board.Project.controller;
+
+import com.example.Spring.Board.Project.dto.MemberDto;
+import com.example.Spring.Board.Project.dto.MemberForm;
+import com.example.Spring.Board.Project.service.MemberService;
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.web.PageableDefault;
+import org.springframework.stereotype.Controller;
+import org.springframework.ui.Model;
+import org.springframework.validation.BindingResult;
+import org.springframework.web.bind.annotation.*;
+
+@Controller
+@RequiredArgsConstructor
+@RequestMapping("/member")
+@Slf4j
+public class MemberController {
+    private final MemberService memberService;
+
+    @GetMapping("/list")
+    public String memberList(
+            Model model,
+            @PageableDefault(size = 2, sort = "id", direction = Sort.Direction.DESC) 
+            Pageable pageable) {
+        
+        Page<MemberDto> page = memberService.findAll(pageable);
+        model.addAttribute("page", page);
+        return "member-list";
+    }
+}
+```
+
+#### 핵심 포인트
+
+**@RequestMapping("/member")**
+
+```java
+@Controller
+@RequestMapping("/member")
+public class MemberController {
+```
+
+- 클래스 레벨에 `@RequestMapping`을 선언하면 모든 메서드의 경로 앞에 `/member`가 자동으로 붙습니다.
+- `@GetMapping("/list")` → 실제 경로: `/member/list`
+- 관리자 전용 기능을 하나의 컨트롤러로 묶어 관리합니다.
+
+**페이지네이션 설정**
+
+```java
+@PageableDefault(size = 2, sort = "id", direction = Sort.Direction.DESC)
+Pageable pageable
+```
+
+| 속성 | 값 | 의미 |
+|------|-----|------|
+| `size` | `2` | 한 페이지당 **2명**의 회원을 표시합니다. (테스트용 작은 값) |
+| `sort` | `"id"` | 회원 ID를 기준으로 정렬합니다. |
+| `direction` | `DESC` | 내림차순 (최근 가입한 회원이 먼저) |
+
+> **💡 실무 팁**: `size=2`는 테스트용입니다. 실제 프로젝트에서는 `size=10` 또는 `size=20`을 많이 사용합니다.
+
+### MemberService - 페이지네이션 조회
+
+```java
+@Service
+@RequiredArgsConstructor
+public class MemberService {
+    private final MemberRepository memberRepository;
+
+    public Page<MemberDto> findAll(Pageable pageable) {
+        Page<Member> member = memberRepository.findAll(pageable);
+        return member.map(i -> mapToMemberDto(i));
+    }
+}
+```
+
+**Page.map()의 재사용**
+
+- `ArticleService`의 `findAll()`과 동일한 패턴입니다.
+- `Page<Member>`를 `Page<MemberDto>`로 변환하되, 페이징 메타 정보는 유지합니다.
+
+### member-list.html - 회원 목록 화면
+
+```html
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security"
+      th:replace="~{/base-layout::layout(~{::section})}">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<section th:fragment="section">
+    <h1>관리자 페이지</h1>
+    
+    <table class="table">
+        <thead>
+        <tr>
+            <td>#</td>
+            <td>이름</td>
+            <td>이메일</td>
+            <td></td>
+        </tr>
+        </thead>
+        <tbody>
+        <tr th:each="member : ${page.content}">
+            <td th:text="${member.id}">#</td>
+            <td th:text="${member.name}">이름</td>
+            <td th:text="${member.email}">이메일</td>
+            <td>
+                <a th:href="@{/member/edit(id=${member.id})}" 
+                   class="btn btn-warning btn-sm">수정</a>
+                <a th:href="@{/member/delete(id=${member.id})}" 
+                   class="btn btn-danger btn-sm">삭제</a>
+            </td>
+        </tr>
+        </tbody>
+    </table>
+
+    <!-- 페이지네이션 바 -->
+    <nav th:if="${!page.isEmpty()}">
+        <ul class="pagination" 
+            th:with="groupPage=2,
+                     start=${(page.number div groupPage) * groupPage}, 
+                     last=${start + groupPage - 1 > page.totalPages ? 
+                            page.totalPages : start + groupPage - 1}">
+
+            <!-- 이전 페이지 버튼 -->
+            <li th:classappend="${page.first} ? 'disabled'" class="page-item">
+                <a th:href="@{/member/list(page=${(page.number)-1})}" 
+                   class="page-link">&laquo;</a>
+            </li>
+
+            <!-- 페이지 번호 목록 -->
+            <li th:each="number : ${#numbers.sequence(start, last)}" 
+                th:classappend="${page.number == number} ? 'active'" 
+                class="page-item">
+                <a th:href="@{/member/list(page=${number})}" 
+                   th:text="${number + 1}" 
+                   class="page-link"></a>
+            </li>
+
+            <!-- 다음 페이지 버튼 -->
+            <li th:classappend="${page.last} ? 'disabled'" class="page-item">
+                <a th:href="@{/member/list(page=${(page.number)+1})}" 
+                   class="page-link">&raquo;</a>
+            </li>
+        </ul>
+    </nav>
+</section>
+</body>
+</html>
+```
+
+#### 페이지네이션 그룹 크기 변경
+
+**groupPage=2 설정**
+
+```html
+th:with="groupPage=2,
+         start=${(page.number div groupPage) * groupPage}, 
+         last=${start + groupPage - 1 > page.totalPages ? 
+                page.totalPages : start + groupPage - 1}"
+```
+
+| 설정 | 값 | 의미 |
+|------|-----|------|
+| `groupPage` | `2` | 페이지 번호를 **2개씩** 묶어서 표시합니다. |
+| `start` 계산 | `(page.number div 2) * 2` | 현재 그룹의 시작 페이지 인덱스 |
+| `last` 계산 | `start + 1` (또는 전체 마지막 페이지) | 현재 그룹의 끝 페이지 인덱스 |
+
+**페이지 그룹 예시** (groupPage=2, size=2일 때)
+
+| 그룹 | 포함 페이지 | 표시 번호 | start | last |
+|------|------------|----------|-------|------|
+| 1그룹 | 0, 1 | [1] [2] | 0 | 1 |
+| 2그룹 | 2, 3 | [3] [4] | 2 | 3 |
+| 3그룹 | 4, 5 | [5] [6] | 4 | 5 |
+
+**article-list vs member-list 비교**
+
+| 항목 | article-list | member-list |
+|------|-------------|-------------|
+| 페이지 크기 | `size=10` | `size=2` |
+| 그룹 크기 | `page.size` (5개) | `groupPage=2` (2개) |
+| 용도 | 게시글 목록 (데이터 많음) | 회원 목록 (테스트/관리) |
+
+#### 수정/삭제 버튼
+
+```html
+<td>
+    <a th:href="@{/member/edit(id=${member.id})}" 
+       class="btn btn-warning btn-sm">수정</a>
+    <a th:href="@{/member/delete(id=${member.id})}" 
+       class="btn btn-danger btn-sm">삭제</a>
+</td>
+```
+
+**게시글 vs 회원 관리 차이**
+
+| 기능 | 게시글 | 회원 |
+|------|--------|------|
+| **수정/삭제 권한** | 작성자 본인만 | 관리자만 |
+| **조건부 렌더링** | `sec:authorize + th:if` (작성자 확인) | 없음 (관리자 페이지 자체가 접근 제한) |
+| **보안** | URL + SecurityContext | URL 경로 제한 (`/member/**`) |
+
+---
+
+## 5.2 회원 정보 수정 구현
+
+관리자가 회원의 정보(이름)를 수정할 수 있는 기능을 구현합니다. **이메일은 로그인 아이디로 사용되므로 수정할 수 없습니다.**
+
+### 동작 흐름
+
+```
+1. 관리자: 회원 목록에서 "수정" 버튼 클릭
+   ↓
+2. 브라우저: GET /member/edit?id=3 요청
+   ↓
+3. Controller: id로 회원 정보 조회
+   ↓
+4. Service: memberRepository.findById(id) → MemberDto
+   ↓
+5. Controller: MemberForm에 기존 데이터 채우기
+   ↓
+6. View: member-edit.html 렌더링 (기존 정보가 채워진 폼)
+   ↓
+7. 관리자: 이름 수정 후 "수정" 버튼 클릭
+   ↓
+8. 브라우저: POST /member/edit 요청
+   ↓
+9. Controller: @Valid 검증
+   ↓
+10. Service: id로 회원 조회 → 이름 수정 → 저장
+   ↓
+11. Controller: 회원 목록으로 리다이렉트
+```
+
+### MemberForm의 재사용
+
+```java
+@Builder
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class MemberForm {
+    private Long id;  // ⭐ 회원 수정 시 사용
+    
+    @NotBlank(message="이름을 입력하세요.")
+    private String name;
+    
+    @NotBlank(message = "이메일을 입력하세요.")
+    @Email(message = "이메일 형식이 맞지 않습니다.")
+    private String email;
+
+    private String password;
+    private String passwordConfirm;
+}
+```
+
+#### MemberForm의 3가지 용도
+
+| 사용 케이스 | id | password | 사용 필드 |
+|------------|-----|----------|----------|
+| **회원가입** | `null` | 필수 | name, email, password, passwordConfirm |
+| **비밀번호 변경** | 로그인 사용자 | 필수 (PasswordForm 사용) | - |
+| **관리자 수정** | 회원 ID | 불필요 | **id, name, email** |
+
+### MemberController - 회원 수정 처리
+
+```java
+@Controller
+@RequiredArgsConstructor
+@RequestMapping("/member")
+@Slf4j
+public class MemberController {
+    private final MemberService memberService;
+
+    // GET 요청: 기존 회원 정보를 채운 폼 표시
+    @GetMapping("/edit")
+    public String getEdit(
+            Model model,
+            @ModelAttribute("member") MemberForm memberForm,
+            @RequestParam("id") Long id) {
+        
+        // 1. DB에서 회원 정보 조회
+        MemberDto memberDto = memberService.findById(id);
+        
+        // 2. MemberForm에 기존 데이터 채우기
+        memberForm.setName(memberDto.getName());
+        memberForm.setEmail(memberDto.getEmail());
+        memberForm.setId(memberDto.getId());  // ⭐ ID 설정
+        
+        return "member-edit";
+    }
+
+    // POST 요청: 수정된 회원 정보 저장
+    @PostMapping("/edit")
+    public String memberEdit(
+            @Valid @ModelAttribute("member") MemberForm memberForm,
+            BindingResult bindingResult) {
+        
+        log.info("memberEdit post method called");
+
+        // 검증 오류가 있으면 수정 폼으로 다시 돌아가기
+        if (bindingResult.hasErrors()) {
+            return "member-edit";
+        }
+        
+        // 회원 정보 수정
+        memberService.update(memberForm);
+        return "redirect:/member/list";
+    }
+}
+```
+
+#### 핵심 포인트
+
+**GET 요청 처리**
+
+```java
+@GetMapping("/edit")
+public String getEdit(
+        Model model,
+        @ModelAttribute("member") MemberForm memberForm,
+        @RequestParam("id") Long id)
+```
+
+| 매개변수 | 역할 |
+|---------|------|
+| `Model model` | 명시적으로 선언했지만 `@ModelAttribute`가 자동으로 Model에 추가하므로 실제로는 불필요합니다. |
+| `@ModelAttribute("member")` | 빈 `MemberForm` 객체를 생성하여 Model에 저장합니다. |
+| `@RequestParam("id")` | URL의 `?id=3` 파라미터를 받습니다. |
+
+**POST 요청 처리**
+
+```java
+@PostMapping("/edit")
+public String memberEdit(
+        @Valid @ModelAttribute("member") MemberForm memberForm,
+        BindingResult bindingResult)
+```
+
+- 게시글 수정과 동일한 패턴입니다.
+- 추가 수동 검증이 없으므로 `@Valid`의 결과만 확인합니다.
+
+### member-edit.html - 회원 수정 폼
+
+```html
+<!DOCTYPE html>
+<html lang="en" xmlns:th="http://www.thymeleaf.org"
+      xmlns:sec="http://www.thymeleaf.org/extras/spring-security"
+      th:replace="~{/base-layout::layout(~{::section})}">
+<head>
+    <meta charset="UTF-8">
+    <title>Title</title>
+</head>
+<body>
+<section th:fragment="section">
+    <h1>회원 정보 수정하기</h1>
+
+    <form th:object="${member}" th:action="@{/member/edit}" method="post">
+        <!-- 숨겨진 ID 필드 -->
+        <input type="hidden" th:field="*{id}">
+        
+        <!-- 이름 (수정 가능) -->
+        <div class="mb-3">
+            <label class="form-label">이름</label>
+            <input class="form-control" type="text" th:field="*{name}">
+            <p th:if="${#fields.hasErrors('name')}" 
+               th:errors="*{name}" 
+               class="text-danger"></p>
+        </div>
+
+        <!-- 이메일 (읽기 전용) -->
+        <div class="mb-3">
+            <label class="form-label">이메일</label>
+            <input type="text" 
+                   th:field="*{email}" 
+                   class="form-control-plaintext" 
+                   readonly>
+            <p th:if="${#fields.hasErrors('email')}" 
+               th:errors="*{email}" 
+               class="text-danger"></p>
+        </div>
+
+        <button type="submit" class="btn btn-primary">수정</button>
+    </form>
+</section>
+</body>
+</html>
+```
+
+#### 읽기 전용 필드 처리
+
+**class="form-control-plaintext" + readonly**
+
+```html
+<input type="text" 
+       th:field="*{email}" 
+       class="form-control-plaintext" 
+       readonly>
+```
+
+| 속성/클래스 | 역할 | 효과 |
+|-----------|------|------|
+| `readonly` | HTML 속성 | 사용자가 값을 수정할 수 없습니다. |
+| `form-control-plaintext` | Bootstrap 클래스 | 일반 텍스트처럼 보이도록 스타일링합니다. (테두리 없음) |
+
+**readonly vs disabled 비교**
+
+| 속성 | 폼 제출 시 | 사용 시기 |
+|------|-----------|----------|
+| `readonly` | ✅ 값이 전송됨 | 표시는 하되 수정만 막고 싶을 때 |
+| `disabled` | ❌ 값이 전송되지 않음 | 아예 사용하지 않는 필드일 때 |
+
+**이메일 읽기 전용의 이유**
+
+| 이유 | 설명 |
+|------|------|
+| **로그인 아이디** | 이메일이 변경되면 사용자가 로그인할 수 없습니다. |
+| **데이터 무결성** | 이메일은 회원 식별자로 사용되므로 변경하면 안 됩니다. |
+| **보안** | 이메일 변경은 별도의 인증 절차가 필요합니다. |
+
+> **💡 실무 팁**: 이메일 변경 기능을 제공하려면 본인 인증(SMS, 이메일 인증 등)을 추가로 구현해야 합니다.
+
+### MemberService - update 메서드
+
+```java
+@Service
+@RequiredArgsConstructor
+public class MemberService {
+    private final MemberRepository memberRepository;
+
+    public MemberDto update(MemberForm memberForm) {
+        // 1. 기존 회원 조회
+        Member member = memberRepository.findById(memberForm.getId())
+                .orElseThrow();
+        
+        // 2. 정보 수정 (이름과 이메일만)
+        member.setEmail(memberForm.getEmail());  // 실제로는 변경되지 않음 (readonly)
+        member.setName(memberForm.getName());
+        
+        // 3. 변경 사항 저장
+        memberRepository.save(member);
+        
+        // 4. DTO 변환 후 반환
+        return mapToMemberDto(member);
+    }
+}
+```
+
+#### 주의사항
+
+**비밀번호는 수정하지 않음**
+
+```java
+public MemberDto update(MemberForm memberForm) {
+    Member member = memberRepository.findById(memberForm.getId()).orElseThrow();
+    
+    member.setEmail(memberForm.getEmail());
+    member.setName(memberForm.getName());
+    // member.setPassword(...) ← 비밀번호는 변경하지 않음!
+    
+    memberRepository.save(member);
+    return mapToMemberDto(member);
+}
+```
+
+| 필드 | 수정 여부 | 이유 |
+|------|----------|------|
+| `name` | ✅ 수정 | 관리자가 회원 이름을 변경할 수 있습니다. |
+| `email` | ✅ 전송되지만 실제 변경 없음 | `readonly`로 수정 불가, 로그인 아이디 유지 |
+| `password` | ❌ 유지 | 비밀번호 변경은 별도 기능으로 처리 (본인만 가능) |
+
+---
+
+## 5.3 회원 삭제 구현
+
+관리자가 회원을 삭제하는 기능을 구현합니다. **회원 삭제 시 해당 회원이 작성한 모든 게시글도 함께 삭제해야 합니다.**
+
+### 동작 흐름
+
+```
+1. 관리자: 회원 목록에서 "삭제" 버튼 클릭
+   ↓
+2. 브라우저: GET /member/delete?id=3 요청
+   ↓
+3. Controller: id 파라미터 수신
+   ↓
+4. Service: 
+   a) 회원 조회
+   b) 해당 회원이 작성한 게시글 전체 삭제
+   c) 회원 삭제
+   ↓
+5. Repository: 
+   - articleRepository.deleteAllByMember(member)
+   - memberRepository.deleteById(id)
+   ↓
+6. Controller: 회원 목록으로 리다이렉트
+```
+
+### MemberController - 회원 삭제 처리
+
+```java
+@Controller
+@RequiredArgsConstructor
+@RequestMapping("/member")
+@Slf4j
+public class MemberController {
+    private final MemberService memberService;
+
+    @GetMapping("/delete")
+    public String memberDelete(@RequestParam("id") Long id) {
+        memberService.delete(id);
+        return "redirect:/member/list";
+    }
+}
+```
+
+- 게시글 삭제와 동일하게 간단한 구조입니다.
+- 복잡한 로직은 Service 계층에서 처리합니다.
+
+### MemberService - delete 메서드
+
+```java
+@Service
+@RequiredArgsConstructor
+public class MemberService {
+    private final MemberRepository memberRepository;
+    private final ArticleRepository articleRepository;
+
+    @Transactional
+    public void delete(Long id) {
+        // 1. 회원 조회
+        Member member = memberRepository.findById(id).orElseThrow();
+        
+        // 2. 회원이 작성한 게시글 전체 삭제
+        articleRepository.deleteAllByMember(member);
+        
+        // 3. 회원 삭제
+        memberRepository.deleteById(id);
+    }
+}
+```
+
+#### 핵심 포인트
+
+**1. 삭제 순서의 중요성**
+
+```java
+// ✅ 올바른 순서
+articleRepository.deleteAllByMember(member);  // 1. 게시글 먼저 삭제
+memberRepository.deleteById(id);              // 2. 회원 삭제
+
+// ❌ 잘못된 순서
+memberRepository.deleteById(id);              // 회원 삭제 시도
+articleRepository.deleteAllByMember(member);  // 외래키 제약 조건 위반!
+```
+
+**외래키 제약 조건**
+
+```sql
+CREATE TABLE article(
+    id INTEGER AUTO_INCREMENT PRIMARY KEY,
+    -- ...
+    member_id INTEGER,
+    FOREIGN KEY (member_id) REFERENCES member(id)
+);
+```
+
+| 시나리오 | 결과 |
+|---------|------|
+| 회원을 먼저 삭제 | ❌ `article` 테이블의 `member_id`가 참조하는 레코드가 없어져 **외래키 제약 조건 위반** 오류 발생 |
+| 게시글을 먼저 삭제 | ✅ 참조하는 레코드가 없으므로 회원 삭제 가능 |
+
+**2. @Transactional의 필수성**
+
+```java
+@Transactional
+public void delete(Long id) {
+    Member member = memberRepository.findById(id).orElseThrow();
+    articleRepository.deleteAllByMember(member);  // ← 1단계
+    memberRepository.deleteById(id);              // ← 2단계
+}
+```
+
+**트랜잭션의 역할**
+
+| 상황 | @Transactional 없음 | @Transactional 있음 |
+|------|-------------------|-------------------|
+| **1단계 성공, 2단계 실패** | 게시글만 삭제되고 회원은 남음 (데이터 불일치) | 전체 롤백 → 아무 것도 삭제되지 않음 |
+| **1단계 실패** | 즉시 오류 발생 | 트랜잭션 롤백 |
+
+**트랜잭션 동작 예시**
+
+```
+시작: @Transactional
+   ↓
+1. articleRepository.deleteAllByMember(member)
+   - DELETE FROM article WHERE member_id = 3 (성공)
+   ↓
+2. memberRepository.deleteById(id)
+   - DELETE FROM member WHERE id = 3 (성공)
+   ↓
+커밋: 모든 변경사항을 DB에 영구 반영
+
+---
+
+만약 2단계에서 오류 발생:
+   ↓
+롤백: 1단계의 게시글 삭제도 취소
+   ↓
+DB 상태는 메서드 호출 전과 동일
+```
+
+> **💡 실무 원칙**: 여러 DB 작업을 하나의 논리적 단위로 묶을 때는 반드시 `@Transactional`을 사용해야 합니다.
+
+**3. deleteAllByMember 커스텀 메서드**
+
+```java
+public interface ArticleRepository extends JpaRepository<Article, Long> {
+    @Transactional
+    void deleteAllByMember(Member member);
+}
+```
+
+**Spring Data JPA 메서드 이름 규칙**
+
+| 메서드명 | 생성되는 쿼리 |
+|---------|-------------|
+| `deleteAllByMember` | `DELETE FROM article WHERE member_id = ?` |
+| `findByMember` | `SELECT * FROM article WHERE member_id = ?` |
+| `countByMember` | `SELECT COUNT(*) FROM article WHERE member_id = ?` |
+
+**메서드 이름 분해**
+
+```
+deleteAllByMember
+   ↓       ↓
+delete  Member
+모두 삭제  조건: member 필드
+```
+
+**실제 실행되는 SQL**
+
+```sql
+-- 1. 게시글 삭제
+DELETE FROM article WHERE member_id = 3;
+
+-- 2. 회원 삭제
+DELETE FROM member WHERE id = 3;
+```
+
+### 게시글 삭제 vs 회원 삭제 비교
+
+| 항목 | 게시글 삭제 | 회원 삭제 |
+|------|----------|----------|
+| **연관 데이터** | 없음 | 작성한 게시글 |
+| **삭제 순서** | 단일 테이블 | 1) 게시글 삭제 → 2) 회원 삭제 |
+| **트랜잭션** | 불필요 (단일 작업) | **필수** (2단계 작업) |
+| **외래키 고려** | 없음 | 외래키 제약 조건 고려 필수 |
+
+---
+
+## 5.4 관리자 기능 전체 흐름 정리
+
+### 권한 기반 접근 제어
+
+**네비게이션바 (base-layout.html)**
+
+```html
+<li sec:authorize="hasAuthority('ROLE_ADMIN')" class="nav-item dropdown">
+    <a class="nav-link dropdown-toggle">관리</a>
+    <ul class="dropdown-menu">
+        <li><a th:href="@{/member/list}">회원관리</a></li>
+    </ul>
+</li>
+```
+
+**Security 설정 (SecurityConfiguration.java)**
+
+```java
+http
+    .authorizeHttpRequests((auth) -> {
+        auth.requestMatchers("/member/**").hasAuthority("ROLE_ADMIN")
+            // ...
+    });
+```
+
+| 계층 | 접근 제어 방법 | 효과 |
+|------|---------------|------|
+| **UI 계층** | `sec:authorize="hasAuthority('ROLE_ADMIN')"` | 관리자에게만 메뉴 표시 |
+| **서버 계층** | `.requestMatchers("/member/**").hasAuthority("ROLE_ADMIN")` | 관리자가 아니면 403 Forbidden 오류 |
+
+### 회원 관리 CRUD 정리
+
+| 작업 | URL | 트랜잭션 | 특이사항 |
+
+| 작업 | URL | 트랜잭션 | 특이사항 |
+|------|-----|---------|----------|
+| **Read (목록)** | GET `/member/list` | 불필요 | 페이지네이션 (size=2, groupPage=2) |
+| **Update** | GET/POST `/member/edit?id=3` | 불필요 | 이메일은 읽기 전용, 이름만 수정 |
+| **Delete** | GET `/member/delete?id=3` | **필수** | 게시글 먼저 삭제 → 회원 삭제 |
+
+### 핵심 학습 포인트
+
+**1. 외래키 제약 조건과 삭제 순서**
+
+```java
+@Transactional
+public void delete(Long id) {
+    Member member = memberRepository.findById(id).orElseThrow();
+    
+    // ⭐ 순서가 매우 중요!
+    articleRepository.deleteAllByMember(member);  // 1. 자식 먼저
+    memberRepository.deleteById(id);              // 2. 부모 나중
+}
+```
+
+**데이터베이스 관계**
+
+```
+member (부모)
+   ↑
+   │ FOREIGN KEY
+   │
+article (자식)
+```
+
+- 부모 테이블을 삭제하기 전에 자식 테이블의 참조를 먼저 제거해야 합니다.
+- 이 순서를 지키지 않으면 `Constraint Violation` 오류가 발생합니다.
+
+**2. @Transactional의 ACID 보장**
+
+```java
+@Transactional
+public void delete(Long id) {
+    // A: Atomicity (원자성)
+    // - 모든 작업이 성공하거나, 모두 실패합니다.
+    
+    articleRepository.deleteAllByMember(member);  // 작업 1
+    memberRepository.deleteById(id);              // 작업 2
+    
+    // C: Consistency (일관성)
+    // - 외래키 제약 조건 등 DB 규칙을 항상 만족합니다.
+    
+    // I: Isolation (격리성)
+    // - 다른 트랜잭션의 영향을 받지 않습니다.
+    
+    // D: Durability (지속성)
+    // - 커밋된 데이터는 영구적으로 저장됩니다.
+}
+```
+
+**트랜잭션 실패 시나리오**
+
+| 시점 | @Transactional 없음 | @Transactional 있음 |
+|------|-------------------|-------------------|
+| 게시글 10개 삭제 성공 | ✅ DB에 즉시 반영 | ⏳ 메모리에만 저장 |
+| 11번째 게시글 삭제 실패 | ❌ 10개는 삭제됨, 회원은 남음 | ✅ 전체 롤백, 아무 것도 삭제 안 됨 |
+
+**3. Spring Data JPA 메서드 이름 규칙**
+
+```java
+void deleteAllByMember(Member member);
+```
+
+**규칙 분해**
+
+| 부분 | 의미 | 설명 |
+|------|------|------|
+| `deleteAll` | DELETE 작업 | 조건에 맞는 모든 레코드를 삭제합니다. |
+| `By` | WHERE 절 시작 | 뒤에 나오는 조건으로 필터링합니다. |
+| `Member` | 필드명 | `Article` 엔티티의 `member` 필드를 의미합니다. |
+| `(Member member)` | 매개변수 | WHERE 조건에 사용할 값입니다. |
+
+**자주 사용되는 패턴**
+
+| 메서드 패턴 | 생성되는 쿼리 | 예시 |
+|-----------|-------------|------|
+| `findBy필드` | SELECT ... WHERE 필드 = ? | `findByEmail(String email)` |
+| `deleteBy필드` | DELETE ... WHERE 필드 = ? | `deleteByMember(Member member)` |
+| `countBy필드` | SELECT COUNT(*) WHERE 필드 = ? | `countByMember(Member member)` |
+| `existsBy필드` | SELECT EXISTS(SELECT 1 WHERE 필드 = ?) | `existsByEmail(String email)` |
+
+**4. 읽기 전용 필드의 구현**
+
+```html
+<input type="text" 
+       th:field="*{email}" 
+       class="form-control-plaintext" 
+       readonly>
+```
+
+| 속성/클래스 | 브라우저 동작 | 폼 제출 | 스타일 |
+|-----------|-------------|--------|--------|
+| `readonly` | 수정 불가 | ✅ 값 전송됨 | 기본 입력 필드 |
+| `form-control-plaintext` | - | - | 일반 텍스트처럼 표시 |
+
+**실무에서의 활용**
+
+```html
+<!-- 1. 주요 식별자 (이메일, 아이디 등) -->
+<input type="text" th:field="*{email}" readonly>
+
+<!-- 2. 계산된 값 (총합, 평균 등) -->
+<input type="text" th:value="${totalAmount}" readonly>
+
+<!-- 3. 시스템 생성 값 (생성일, 수정일 등) -->
+<input type="text" 
+       th:value="${#temporals.format(member.created, 'yyyy-MM-dd')}" 
+       readonly>
+```
+
+---
+
+## 5.5 프로젝트 최종 구조
+
+### 디렉토리 구조
+
+```
+src/main/java/com/example/Spring/Board/Project/
+├── config/
+│   └── SecurityConfiguration.java         (Spring Security 설정)
+├── controller/
+│   ├── ArticleController.java             (게시글 관련 요청 처리)
+│   ├── HomeController.java                (로그인, 회원가입, 비밀번호 변경)
+│   └── MemberController.java              (관리자용 회원 관리)
+├── dto/
+│   ├── ArticleDto.java                    (게시글 응답 DTO)
+│   ├── ArticleForm.java                   (게시글 요청 DTO)
+│   ├── MemberDto.java                     (회원 응답 DTO)
+│   ├── MemberForm.java                    (회원 요청 DTO)
+│   └── PasswordForm.java                  (비밀번호 변경 DTO)
+├── model/
+│   ├── Article.java                       (게시글 엔티티)
+│   ├── Authority.java                     (권한 엔티티)
+│   ├── Member.java                        (회원 엔티티)
+│   └── MemberUserDetails.java             (Spring Security UserDetails 구현)
+├── repository/
+│   ├── ArticleRepository.java             (게시글 데이터 접근)
+│   ├── AuthorityRepository.java           (권한 데이터 접근)
+│   └── MemberRepository.java              (회원 데이터 접근)
+├── service/
+│   ├── ArticleService.java                (게시글 비즈니스 로직)
+│   └── MemberService.java                 (회원 비즈니스 로직)
+└── SpringBoardProjectApplication.java     (메인 클래스)
+
+src/main/resources/
+├── templates/
+│   ├── article-add.html                   (게시글 작성 폼)
+│   ├── article-content.html               (게시글 상세)
+│   ├── article-edit.html                  (게시글 수정 폼)
+│   ├── article-list.html                  (게시글 목록)
+│   ├── article-list-test.html             (테스트 페이지)
+│   ├── base-layout.html                   (공통 레이아웃)
+│   ├── login.html                         (로그인 폼)
+│   ├── logout.html                        (로그아웃 확인)
+│   ├── member-edit.html                   (회원 수정 폼)
+│   ├── member-list.html                   (회원 목록)
+│   ├── password.html                      (비밀번호 변경 폼)
+│   └── signup.html                        (회원가입 폼)
+├── static/
+│   └── images/
+│       └── spring.svg                     (로고 이미지)
+├── application.properties                 (애플리케이션 설정)
+├── data.sql                               (초기 데이터)
+└── schema.sql                             (테이블 스키마)
+```
+
+### 계층별 역할 정리
+
+**1. Controller 계층**
+
+| 클래스 | 경로 | 역할 |
+|--------|------|------|
+| `HomeController` | `/`, `/login`, `/signup`, `/password`, `/logout` | 메인 페이지, 인증 관련 처리 |
+| `ArticleController` | `/article/**` | 게시글 CRUD 처리 |
+| `MemberController` | `/member/**` | 관리자 전용 회원 관리 |
+
+**2. Service 계층**
+
+| 클래스 | 주요 메서드 | 책임 |
+|--------|-----------|------|
+| `MemberService` | `create()`, `update()`, `delete()`, `checkPassword()` | 회원 관련 비즈니스 로직, Entity ↔ DTO 변환 |
+| `ArticleService` | `add()`, `update()`, `delete()`, `findAll(Pageable)` | 게시글 관련 비즈니스 로직, Entity ↔ DTO 변환 |
+
+**3. Repository 계층**
+
+| 인터페이스 | 커스텀 메서드 | 역할 |
+|-----------|-------------|------|
+| `MemberRepository` | `findByEmail()` | 회원 데이터 접근 |
+| `ArticleRepository` | `deleteAllByMember()` | 게시글 데이터 접근 |
+| `AuthorityRepository` | `findByMember()` | 권한 데이터 접근 |
+
+**4. Model 계층**
+
+| 클래스 | 관계 | 설명 |
+|--------|------|------|
+| `Member` | 1:N → `Authority`, 1:N → `Article` | 회원 정보 |
+| `Authority` | N:1 → `Member` | 회원의 권한 (ROLE_USER, ROLE_ADMIN) |
+| `Article` | N:1 → `Member` | 게시글 (작성자 연결) |
+| `MemberUserDetails` | - | Spring Security 통합용 |
+
+### 주요 URL 매핑 정리
+
+**인증 및 회원 관리**
+
+| 메서드 | URL | 설명 | 권한 |
+|--------|-----|------|------|
+| GET | `/` | 메인 페이지 (→ `/article/list`) | 모두 |
+| GET | `/login` | 로그인 폼 | 비로그인 |
+| POST | `/login` | 로그인 처리 (Spring Security) | 비로그인 |
+| GET | `/signup` | 회원가입 폼 | 비로그인 |
+| POST | `/signup` | 회원가입 처리 | 비로그인 |
+| GET | `/password` | 비밀번호 변경 폼 | 로그인 |
+| POST | `/password` | 비밀번호 변경 처리 | 로그인 |
+| POST | `/logout` | 로그아웃 처리 (Spring Security) | 로그인 |
+
+**게시글 관리**
+
+| 메서드 | URL | 설명 | 권한 |
+|--------|-----|------|------|
+| GET | `/article/list` | 게시글 목록 (페이징) | 모두 |
+| GET | `/article/content?id=5` | 게시글 상세 | 모두 |
+| GET | `/article/add` | 게시글 작성 폼 | 로그인 |
+| POST | `/article/add` | 게시글 작성 처리 | 로그인 |
+| GET | `/article/edit?id=5` | 게시글 수정 폼 | 작성자 |
+| POST | `/article/edit` | 게시글 수정 처리 | 작성자 |
+| GET | `/article/delete?id=5` | 게시글 삭제 | 작성자 |
+
+**관리자 기능**
+
+| 메서드 | URL | 설명 | 권한 |
+|--------|-----|------|------|
+| GET | `/member/list` | 회원 목록 (페이징) | 관리자 |
+| GET | `/member/edit?id=3` | 회원 수정 폼 | 관리자 |
+| POST | `/member/edit` | 회원 수정 처리 | 관리자 |
+| GET | `/member/delete?id=3` | 회원 삭제 | 관리자 |
+
+### 데이터베이스 스키마 요약
+
+```
+member (회원)
+  ├── id (PK)
+  ├── name
+  ├── email (로그인 아이디)
+  └── password (BCrypt 암호화)
+
+authority (권한)
+  ├── id (PK)
+  ├── authority (ROLE_ADMIN, ROLE_USER)
+  └── member_id (FK → member.id)
+
+article (게시글)
+  ├── id (PK)
+  ├── title
+  ├── description
+  ├── created (생성 시간)
+  ├── updated (수정 시간)
+  └── member_id (FK → member.id)
+```
+
+**관계 구조**
+
+```
+member (1) ──────< (N) authority
+   │
+   │
+   └──────< (N) article
+```
+---
+
+## 6. 최종 애플리케이션 결과
+
+### 구현된 기능 요약
+**1. 회원 관리**
+
+```
+✅ 회원가입 (이메일 중복 체크, 비밀번호 일치 검증)
+✅ 로그인 (Spring Security 기반 인증)
+✅ 로그아웃 (세션 무효화)
+✅ 비밀번호 변경 (기존 비밀번호 확인)
+✅ 회원 목록 조회 (관리자 전용, 페이징)
+✅ 회원 정보 수정 (관리자 전용)
+✅ 회원 삭제 (관리자 전용, 게시글 연계 삭제)
+```
+
+**2. 게시글 관리**
+
+```
+✅ 게시글 목록 조회 (페이지네이션, 최신순)
+✅ 게시글 상세 조회
+✅ 게시글 작성 (로그인 필수, 작성자 자동 연결)
+✅ 게시글 수정 (작성자 본인만)
+✅ 게시글 삭제 (작성자 본인만)
+✅ 욕설 필터링 (제목, 내용)
+```
+
+**3. 보안 및 권한**
+
+```
+✅ BCrypt 비밀번호 암호화
+✅ CSRF 토큰 보호
+✅ 세션 기반 인증
+✅ 역할 기반 접근 제어 (ROLE_USER, ROLE_ADMIN)
+✅ 작성자 권한 확인 (수정/삭제 버튼 조건부 표시)
+```
+### 프로젝트 실행 및 테스트
+
+**1. 애플리케이션 실행**
+
+```bash
+./gradlew bootRun
+```
+
+접속 주소: `http://localhost:8080`
+
+**2. 테스트 계정**
+
+| 이름 | 이메일 | 비밀번호 | 권한 |
+|------|--------|---------|------|
+| 홍혜창 | HyechangHong@spring.ac.kr | password | - |
+| 윤서준 | SeojunYoon@spring.ac.kr | password | ROLE_ADMIN |
+| 김우현 | WoohyunKim@spring.ac.kr | password | - |
+| 손흥민 | Sonny@spring.ac.kr | password | - |
+
+**3. 기능 테스트 시나리오**
+
+```
+시나리오 1: 일반 사용자
+1. 홍혜창 계정으로 로그인
+2. 게시글 목록 확인
+3. 새 게시글 작성
+4. 자신의 게시글 수정 및 삭제
+5. 다른 사용자 게시글은 수정/삭제 버튼 미표시 확인
+6. 비밀번호 변경
+
+시나리오 2: 관리자
+1. 윤서준 계정으로 로그인
+2. 네비게이션바에 "관리" 메뉴 표시 확인
+3. 회원 목록 조회
+4. 회원 정보 수정 (이름 변경)
+5. 회원 삭제 (해당 회원의 게시글도 함께 삭제 확인)
+```
+
+### 학습 성과
+
+**1. Spring Boot 핵심 기술 체득**
+
+| 기술 | 학습 내용 |
+|------|----------|
+| **Spring Data JPA** | 엔티티 설계, Repository 메서드, 페이지네이션, JPQL |
+| **Spring MVC** | Controller-Service-Repository 패턴, RESTful API, 예외 처리 |
+| **Spring Security** | 인증/인가, 권한 제어, BCrypt 암호화, UserDetailsService |
+| **Thymeleaf** | 템플릿 엔진, 프래그먼트, 조건부 렌더링, 폼 바인딩 |
+| **Bean Validation** | `@Valid`, `@NotBlank`, `BindingResult`, 커스텀 검증 |
+
+**2. 실무 패턴 및 원칙**
+
+```
+✅ 계층 분리 (Controller → Service → Repository)
+✅ DTO 패턴 (Entity 직접 노출 방지)
+✅ 트랜잭션 관리 (@Transactional)
+✅ 외래키 제약 조건 고려
+✅ 권한 기반 접근 제어 (RBAC)
+✅ 입력값 검증 (클라이언트 + 서버)
+✅ 비밀번호 암호화 (평문 저장 금지)
+```
+
+**3. 문제 해결 경험**
+
+| 문제 | 해결 방법 | 학습 포인트 |
+|------|----------|------------|
+| 드롭다운 메뉴 작동 안 함 | `bootstrap.bundle.min.js` 사용 | JavaScript 라이브러리 의존성 |
+| 날짜 포맷 오류 | `#calendars` → `#temporals` | Java 8 Time API |
+| `Math.min()` 타입 오류 | 조건부 연산자 `? :` 사용 | SpEL 타입 안전성 |
+| 회원 삭제 시 외래키 오류 | 게시글 먼저 삭제 | 외래키 제약 조건 순서 |
+
+---
+
+## 7. 마무리
+
+### 프로젝트 회고
+
+이 프로젝트를 통해 다음과 같은 실무 역량을 체득했습니다:
+
+**1. 풀스택 웹 애플리케이션 개발**
+- 데이터베이스 설계부터 프론트엔드 화면까지 전 과정 경험
+- MVC 패턴 기반의 체계적인 코드 구조화
+
+**2. Spring 생태계 통합 활용**
+- Spring Boot, Spring Data JPA, Spring Security의 유기적 결합
+- 각 기술의 강점을 살린 효율적인 개발
+
+**3. 실무 중심 설계 원칙**
+- Entity와 DTO의 분리를 통한 계층 간 독립성 확보
+- 트랜잭션과 외래키를 고려한 안전한 데이터 처리
+- 권한 기반 접근 제어를 통한 보안 강화
+
+---
 
 
 
