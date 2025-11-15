@@ -9,6 +9,7 @@ import org.apache.tomcat.util.http.parser.Authorization;
 import org.springframework.boot.autoconfigure.security.servlet.PathRequest;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.context.annotation.Profile;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.builders.WebSecurity;
 import org.springframework.security.config.annotation.web.configuration.WebSecurityCustomizer;
@@ -77,10 +78,22 @@ public class SecurtiyConfiguration {
     }
 
     @Bean
-    public WebSecurityCustomizer webSecurityCustomizer() {
+    @Profile("dev")
+    public WebSecurityCustomizer webSecurityCustomizerDev() {
         return (web) -> web.ignoring()
                 // 1. H2 콘솔 경로 무시
                 .requestMatchers(PathRequest.toH2Console())
+
+                // 2. CSS, JS, Images 등 Spring Boot의 일반적인 정적 리소스 경로 무시
+                .requestMatchers(PathRequest.toStaticResources().atCommonLocations());
+//                .requestMatchers("/image/**");
+
+    }
+
+    @Bean
+    @Profile("aws")
+    public WebSecurityCustomizer webSecurityCustomizerAws() {
+        return (web) -> web.ignoring()
 
                 // 2. CSS, JS, Images 등 Spring Boot의 일반적인 정적 리소스 경로 무시
                 .requestMatchers(PathRequest.toStaticResources().atCommonLocations());
