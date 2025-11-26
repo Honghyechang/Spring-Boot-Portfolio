@@ -44,3 +44,9 @@ dependencies {
 tasks.named('test') {
 	useJUnitPlatform()
 }
+tasks.named('bootBuildImage') {
+	// Docker 이미지 이름을 설정하는 올바른 위치
+	imageName = "spring-board-project:latest"
+	createdDate="now"
+}
+
