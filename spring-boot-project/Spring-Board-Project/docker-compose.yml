@@ -10,10 +10,8 @@ services:
                 - app
         restart: always
     app:
-        #image : hyechang2071148/spring-compose-image
-        build:
-                context: .
-                dockerfile: Dockerfile
+        image : hyechang2071148/spring-compose-image
+        
         restart: always
         expose:
                 - "8080"
