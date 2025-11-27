@@ -25,6 +25,7 @@ jobs:
       # 3단계: Gradle 빌드 (JAR 생성)
       - name: Build with Gradle
         run: ./gradlew clean bootJar
+        working-directory: spring-boot-project/Spring-Board-Project
       
       # 4단계: Docker Hub 로그인 (Secrets 사용)
       - name: Log in to Docker Hub
@@ -37,16 +38,19 @@ jobs:
       - name: Build Docker image
         run: |
           docker build -t ${{ secrets.DOCKER_USERNAME }}/spring-compose-image:latest .
+        working-directory: spring-boot-project/Spring-Board-Project
       
       # 6단계: Docker Hub에 푸시
       - name: Push Docker image
         run: |
           docker push ${{ secrets.DOCKER_USERNAME }}/spring-compose-image:latest
+        working-directory: spring-boot-project/Spring-Board-Project
       
       # 7단계: 배포 ZIP 파일 생성
       - name: Create deployment package
         run: |
           zip -r deploy.zip docker-compose.yml nginx.conf Dockerrun.aws.json
+        working-directory: spring-boot-project/Spring-Board-Project
       
       # 8단계: AWS EB에 배포 (Secrets 사용)
       - name: Deploy to Elastic Beanstalk
@@ -58,4 +62,4 @@ jobs:
           environment_name: ${{ secrets.EB_ENVIRONMENT_NAME }}
           version_label: ${{ github.sha }}
           region: ${{ secrets.AWS_REGION }}
-          deployment_package: deploy.zip
+          deployment_package: spring-boot-project/Spring-Board-Project/deploy.zip
