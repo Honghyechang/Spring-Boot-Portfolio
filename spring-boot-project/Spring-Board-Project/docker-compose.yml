@@ -24,6 +24,9 @@ services:
                 DB_NAME: mydb
                 DB_USERNAME: hyechang
                 DB_PASSWORD: password
+                SPRING_SQL_INIT_MODE: never
+                SPRING_SESSION_JDBC_INITIALIZE_SCHEMA: never
+                
     db:
                 image: mysql
                 restart: always
