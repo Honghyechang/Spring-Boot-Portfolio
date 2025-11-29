@@ -3,6 +3,11 @@
 안녕하세요. 이 레포지토리는 **Spring Boot**를 활용하여 백엔드 개발 역량을 쌓고, 그 과정에서 얻은 기술적 이해를 상세히 기록한 **지식 포트폴리오**입니다. 단순히 코드를 넘어, 프레임워크의 원리와 설계 과정에 대한 깊이 있는 고민을 담았습니다.
 
 ---
+## 🏗️ 시스템 아키텍처
+
+![시스템 아키텍처](./spring-boot-project/images/system-architecture.png)
+> Spring Boot 게시판 프로젝트의 전체 CI/CD 파이프라인 및 배포 구조
+
 
 ## 🎬 프로젝트 시연 영상
 
@@ -28,7 +33,7 @@
 - **CI/CD 파이프라인**: GitHub Actions를 활용한 자동화된 빌드 및 배포
 
 ### 사용 기술 스택
-- **Backend**: Java 17, Spring Boot 3.x
+- **Backend**: Java 21, Spring Boot 3.x
 - **Database**: H2 (개발 환경), MySQL (운영 환경)
 - **ORM**: Spring Data JPA
 - **Security**: Spring Security
